@@ -36,23 +36,40 @@ jobs:
         with:
           cache-read-only: true
 
+      # Checked up front so a bad secret fails in seconds, with a message saying which one.
       - name: Restore the signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.LUMA_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.LUMA_KEYSTORE_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::The LUMA_KEYSTORE_BASE64 secret isn't set (see the README's Releasing section)"
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Set both LUMA_KEYSTORE_BASE64 and LUMA_KEYSTORE_PASSWORD (see the README's Releasing section)"
             exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/luma-release.jks"
+          keystore="$RUNNER_TEMP/luma-release.jks"
+          # Pasted secrets often pick up line breaks or spaces; neither belongs in these values.
+          if ! printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$keystore"; then
+            echo "::error::LUMA_KEYSTORE_BASE64 isn't valid base64. Paste the whole of keystore-base64.txt."
+            exit 1
+          fi
+          password=$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '[:space:]')
+          password=${password#luma.keystore.password=}
+          echo "::add-mask::$password"
+          if ! keytool -list -keystore "$keystore" -storepass "$password" -alias luma > /dev/null 2>&1; then
+            echo "::error::LUMA_KEYSTORE_PASSWORD doesn't open the keystore (or LUMA_KEYSTORE_BASE64 is the wrong file). Use only the part after luma.keystore.password= in ~/.gradle/gradle.properties."
+            exit 1
+          fi
+          echo "LUMA_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
+          echo "LUMA_KEYSTORE_PASSWORD=$password" >> "$GITHUB_ENV"
 
       # Public releases never include the Google Home SDK; see the README for building with it.
+      # AGP only creates unit tests for the debug build; they cover the same (pure Kotlin) code.
       - name: Test, lint and build the signed release
-        env:
-          LUMA_KEYSTORE_FILE: ${{ runner.temp }}/luma-release.jks
-          LUMA_KEYSTORE_PASSWORD: ${{ secrets.LUMA_KEYSTORE_PASSWORD }}
-        # AGP only creates unit tests for the debug build; they cover the same (pure Kotlin) code.
-        run: ./gradlew -Pluma.homeApis=false testDebugUnitTest lintRelease assembleRelease --console=plain
+        run: |
+          ./gradlew -Pluma.homeApis=false testDebugUnitTest lintRelease assembleRelease --console=plain || {
+            echo "::error::The Gradle build failed. Open this step's log for the details."
+            exit 1
+          }
 
       - name: Verify the signature
         run: |
@@ -60,7 +77,10 @@ jobs:
           test -f "$apk" || { echo "::error::No signed APK was built"; exit 1; }
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           "$apksigner" verify --print-certs "$apk" | tee signature.txt
-          grep -q "Signer #1 certificate DN: CN=Luma" signature.txt
+          grep -q "Signer #1 certificate DN: CN=Luma" signature.txt || {
+            echo "::error::The APK isn't signed with Luma's release key"
+            exit 1
+          }
 
       - name: Publish the release
         env:
@@ -76,7 +96,10 @@ jobs:
             echo "This build doesn't include Google Home device control. See the README to build Luma with it."
           } > notes.md
           gh release create "$GITHUB_REF_NAME" "$apk" "$apk.sha256" \
-            --title "Luma $GITHUB_REF_NAME" --notes-file notes.md --generate-notes --verify-tag
+            --title "Luma $GITHUB_REF_NAME" --notes-file notes.md --generate-notes --verify-tag || {
+            echo "::error::Couldn't create the GitHub release. If one already exists for $GITHUB_REF_NAME, delete it first."
+            exit 1
+          }
 
       - name: Remove the signing key
         if: always()
