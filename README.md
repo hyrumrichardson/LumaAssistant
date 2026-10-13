@@ -2,7 +2,7 @@
 
 [![Build](https://github.com/hyrumrichardson/LumaAssistant/actions/workflows/build.yml/badge.svg)](https://github.com/hyrumrichardson/LumaAssistant/actions/workflows/build.yml)
 
-A replacement for a certain company's brutal dismantling of their useful assistant, replaced with crappy AI services.
+A replacement for a certain company's brutal dismantling of their beloved assistant, to be replaced with crappy AI services that nobody wanted.
 
 Luma is a small Android voice assistant. Set it as your phone's digital assistant, invoke it (long-press
 power or home, corner swipe, or whatever gesture your phone uses), and a popup listens and does one of
