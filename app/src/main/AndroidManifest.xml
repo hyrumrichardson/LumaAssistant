@@ -20,6 +20,12 @@
             <action android:name="android.intent.action.SET_TIMER" />
         </intent>
         <package android:name="com.google.android.apps.maps" />
+        <!-- To find the default browser for web searches. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 
     <application

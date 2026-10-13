@@ -1,13 +1,15 @@
 package io.github.hyrumrichardson.luma.assist
 
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.AlarmClock
 import androidx.core.net.toUri
 import io.github.hyrumrichardson.luma.nlu.TravelMode
 import kotlin.time.Duration
 
-/** Intents that hand work off to the Clock and Maps apps. */
+/** Intents that hand work off to the Clock, Maps and browser apps. */
 object AppIntents {
     private const val MAPS_PACKAGE = "com.google.android.apps.maps"
     const val MAX_TIMER_SECONDS = 24 * 60 * 60
@@ -32,4 +34,20 @@ object AppIntents {
     fun mapSearch(destination: String): Intent =
         Intent(Intent.ACTION_VIEW, "geo:0,0?q=${Uri.encode(destination)}".toUri())
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    /** Opens [url] in a browser, but not in an app that claims the site's links. */
+    fun browse(url: String): Intent =
+        Intent(Intent.ACTION_VIEW, url.toUri())
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    /** [browse], pinned to the user's default browser when they've chosen one. */
+    fun browseInDefaultBrowser(context: Context, url: String): Intent {
+        val probe = Intent(Intent.ACTION_VIEW, "https://example.com".toUri()).addCategory(Intent.CATEGORY_BROWSABLE)
+        val browser = context.packageManager.resolveActivity(probe, PackageManager.MATCH_DEFAULT_ONLY)
+            ?.activityInfo?.packageName
+            // With no default chosen, Android resolves to its own app picker.
+            ?.takeIf { it != "android" }
+        return browse(url).apply { if (browser != null) setPackage(browser) }
+    }
 }

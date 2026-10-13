@@ -150,11 +150,37 @@ class CommandParserTest {
         parse("how do I get to the airport"),
     )
 
-    // --- Not commands ---
+    // --- Flashlight ---
 
-    @Test fun unknown() = assertNull(parse("what's the weather like"))
+    @Test fun flashlightOn() = assertEquals(Command.Flashlight(true), parse("Turn on the flashlight"))
 
-    @Test fun walkTheDog() = assertNull(parse("walk the dog"))
+    @Test fun flashlightOffAfter() = assertEquals(Command.Flashlight(false), parse("turn the flashlight off"))
+
+    @Test fun torchOff() = assertEquals(Command.Flashlight(false), parse("torch off"))
+
+    @Test fun flashlightToggle() = assertEquals(Command.Flashlight(null), parse("flashlight"))
+
+    @Test fun flashlightPolite() = assertEquals(Command.Flashlight(true), parse("Hey Luma, can you turn on my flashlight please"))
+
+    @Test fun flashlightIsNotASmartDevice() = assertEquals(Command.Flashlight(true), parse("switch on the flash"))
+
+    // --- Web search ---
+
+    @Test fun explicitSearch() = assertEquals(Command.WebSearch("cheap flights to Denver"), parse("Search for cheap flights to Denver"))
+
+    @Test fun googleIt() = assertEquals(Command.WebSearch("how tall is Mount Everest"), parse("google how tall is Mount Everest?"))
+
+    @Test fun lookUp() = assertEquals(Command.WebSearch("the Luma bakery hours"), parse("look up the Luma bakery hours"))
+
+    @Test fun unknownBecomesSearch() =
+        assertEquals(Command.WebSearch("what's the weather like"), parse("what's the weather like?"))
+
+    @Test fun unknownDropsWakeWord() =
+        assertEquals(Command.WebSearch("who won the World Series"), parse("Hey Luma, who won the World Series"))
+
+    @Test fun walkTheDogIsASearch() = assertEquals(Command.WebSearch("walk the dog"), parse("walk the dog"))
+
+    @Test fun parseKnownSkipsSearchFallback() = assertNull(CommandParser.parseKnown("what's the weather like"))
 
     @Test fun empty() = assertNull(parse("   "))
 }

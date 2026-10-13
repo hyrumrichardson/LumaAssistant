@@ -7,6 +7,7 @@ import io.github.hyrumrichardson.luma.home.HomeStatus
 import io.github.hyrumrichardson.luma.nlu.Command
 import io.github.hyrumrichardson.luma.nlu.Durations
 import io.github.hyrumrichardson.luma.nlu.Timing
+import io.github.hyrumrichardson.luma.phone.Flashlight
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -37,7 +38,28 @@ class CommandExecutor(private val app: LumaApp) {
             closeImmediately = true,
         )
         is Command.ControlDevice -> device(command)
+        is Command.Flashlight -> flashlight(command)
+        is Command.WebSearch -> {
+            val url = app.settings.searchEngine.urlFor(command.query)
+            Outcome(
+                reply = "Searching for \"${command.query}\"",
+                success = true,
+                launch = AppIntents.browseInDefaultBrowser(app, url),
+                fallbackLaunch = AppIntents.browse(url),
+                closeImmediately = true,
+            )
+        }
     }
+
+    private suspend fun flashlight(command: Command.Flashlight): Outcome =
+        when (val result = app.flashlight.set(command.turnOn)) {
+            is Flashlight.Result.Switched -> Outcome("Flashlight ${if (result.on) "on" else "off"}.", success = true)
+            Flashlight.Result.NoFlashlight -> Outcome("This phone doesn't have a flashlight.", success = false)
+            Flashlight.Result.CameraBusy -> Outcome(
+                "The camera is in use, so I can't turn on the flashlight right now.",
+                success = false,
+            )
+        }
 
     private fun timer(command: Command.SetTimer): Outcome {
         val length = command.length

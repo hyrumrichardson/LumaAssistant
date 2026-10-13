@@ -2,9 +2,10 @@
 
 _Last updated: October 13, 2026_
 
-Luma is a voice assistant that sets timers, switches Google Home devices, and starts Google Maps
-navigation. It has no accounts, ads, analytics, or crash reporting, and it doesn't collect, sell, or
-share your personal data. Luma's own code doesn't connect to the internet.
+Luma is a voice assistant that sets timers, switches your flashlight and Google Home devices, starts
+Google Maps navigation, and searches the web. It has no accounts, ads, analytics, or crash reporting,
+and it doesn't collect, sell, or share your personal data. Luma's own code doesn't connect to the
+internet.
 
 ## Your voice
 
@@ -23,6 +24,12 @@ commands to them through Google Play services. That exchange is covered by Googl
 Luma only gets access to the home you choose. You can revoke it any time in your Google Account under
 **Data & privacy > Third-party apps & services**.
 
+## Web searches
+
+When you ask something Luma doesn't handle itself, or say "search for…", it opens your default browser
+with that text as a search on the search engine you picked in Luma's settings (Google unless you change
+it). The browser and search engine handle the query under their own privacy policies.
+
 ## Maps and timers
 
 When you ask for directions, Luma passes the destination to Google Maps. When you set a timer, it
@@ -30,7 +37,7 @@ passes the length and name to your Clock app. Those apps handle the data under t
 
 ## What Luma stores on your phone
 
-- Your preferences, such as whether replies are spoken.
+- Your preferences: whether replies are spoken, and your search engine.
 - Scheduled device actions ("turn off the lights in 10 minutes"): the device IDs, a description, and
   the time. Each one is deleted once it runs or you cancel it.
 
@@ -40,7 +47,8 @@ and uninstalling Luma deletes it.
 ## Lock screen
 
 Luma can open over the lock screen, but it asks you to unlock before switching devices, setting a
-timer, or starting navigation. Someone holding your locked phone can't control your home.
+timer, starting navigation, or searching. Someone holding your locked phone can't control your home.
+The flashlight works without unlocking, like the one in Quick Settings.
 
 ## Permissions
 
@@ -52,6 +60,8 @@ timer, or starting navigation. Someone holding your locked phone can't control y
 | Notifications | To tell you when a scheduled action has run (optional) |
 | Run at startup | To restore scheduled actions after the phone restarts |
 | Internet | Declared for the Google Home APIs. Luma's own code makes no network requests |
+
+The flashlight needs no permission.
 
 ## Contact
 

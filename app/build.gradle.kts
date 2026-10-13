@@ -13,6 +13,21 @@ val homeApisInstalled = File(
 val homeApisEnabled = providers.gradleProperty("luma.homeApis").orNull?.toBoolean() ?: homeApisInstalled
 logger.lifecycle("Luma: Google Home APIs ${if (homeApisEnabled) "enabled" else "not installed, using stub"}")
 
+// One version, set in gradle.properties. Release tags must match it (v0.1.0 for 0.1.0).
+val lumaVersion = providers.gradleProperty("luma.versionName").get()
+val lumaVersionCode = lumaVersion.split(".").map(String::toInt).let { (major, minor, patch) ->
+    require(minor < 100 && patch < 100) { "Minor and patch versions must be below 100: $lumaVersion" }
+    major * 10_000 + minor * 100 + patch
+}
+
+// Release signing comes from ~/.gradle/gradle.properties locally, or environment variables in CI.
+// Without it, release builds come out unsigned. See the README's "Releasing" section.
+fun signingValue(property: String, env: String): String? =
+    providers.gradleProperty(property).orNull ?: providers.environmentVariable(env).orNull
+val lumaKeystoreFile = signingValue("luma.keystore.file", "LUMA_KEYSTORE_FILE")
+val lumaKeystorePassword = signingValue("luma.keystore.password", "LUMA_KEYSTORE_PASSWORD")
+val lumaKeyAlias = signingValue("luma.key.alias", "LUMA_KEY_ALIAS") ?: "luma"
+
 android {
     namespace = "io.github.hyrumrichardson.luma"
     compileSdk = 37
@@ -21,17 +36,36 @@ android {
         applicationId = "io.github.hyrumrichardson.luma"
         minSdk = 29 // Required by the Home APIs.
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = lumaVersionCode
+        versionName = lumaVersion
 
         buildConfigField("boolean", "HOME_APIS_ENABLED", homeApisEnabled.toString())
     }
 
+    signingConfigs {
+        if (lumaKeystoreFile != null && lumaKeystorePassword != null) {
+            create("release") {
+                storeFile = rootProject.file(lumaKeystoreFile)
+                storePassword = lumaKeystorePassword
+                keyAlias = lumaKeyAlias
+                keyPassword = lumaKeystorePassword // PKCS12 keystores use one password for both
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("release")
         }
+    }
+
+    // Google's dependency report is an encrypted blob only Google Play can read; F-Droid rejects it.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     compileOptions {

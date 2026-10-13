@@ -15,6 +15,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -38,6 +39,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -206,30 +209,8 @@ private fun SetupScreen() {
                         detail = if (checks.mic) "Allowed" else "Needed to hear your commands.",
                         action = "Allow".takeUnless { checks.mic },
                     ) { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }
-                    StatusRow(
-                        ok = checks.exactAlarms,
-                        title = "Alarms & reminders",
-                        detail = if (checks.exactAlarms) "Scheduled device actions run on time." else
-                            "Without it, \"in 10 minutes\" actions may run a few minutes late.",
-                        action = "Allow".takeUnless { checks.exactAlarms },
-                    ) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            context.startFirst(
-                                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, "package:${context.packageName}".toUri()),
-                            )
-                        }
-                    }
-                    StatusRow(
-                        ok = checks.notifications,
-                        title = "Notifications",
-                        detail = if (checks.notifications) "You'll hear back when scheduled actions run." else
-                            "Optional: get told when scheduled actions run.",
-                        action = "Allow".takeUnless { checks.notifications },
-                    ) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                    }
+                    // These two only matter for scheduled Google Home actions.
+                    if (BuildConfig.HOME_APIS_ENABLED) ScheduledActionPermissions(checks) { permissionLauncher.launch(it) }
                 }
             }
 
@@ -272,11 +253,39 @@ private fun SetupScreen() {
                         }
                         Switch(checked = speak, onCheckedChange = { speak = it; app.settings.speakReplies = it })
                     }
+                    SearchEngineRow()
                 }
             }
 
             item { ExamplesSection() }
         }
+    }
+}
+
+@Composable
+private fun ScheduledActionPermissions(checks: Checks, requestPermission: (String) -> Unit) {
+    val context = LocalContext.current
+    StatusRow(
+        ok = checks.exactAlarms,
+        title = "Alarms & reminders",
+        detail = if (checks.exactAlarms) "Scheduled device actions run on time." else
+            "Without it, \"in 10 minutes\" actions may run a few minutes late.",
+        action = "Allow".takeUnless { checks.exactAlarms },
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.startFirst(
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, "package:${context.packageName}".toUri()),
+            )
+        }
+    }
+    StatusRow(
+        ok = checks.notifications,
+        title = "Notifications",
+        detail = if (checks.notifications) "You'll hear back when scheduled actions run." else
+            "Optional: get told when scheduled actions run.",
+        action = "Allow".takeUnless { checks.notifications },
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) requestPermission(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
 
@@ -326,8 +335,9 @@ private fun HomeSection(
         when (status) {
             null -> CircularProgressIndicator(Modifier.size(24.dp))
             HomeStatus.SdkMissing -> Text(
-                "This build doesn't include the Google Home APIs SDK, so device control is off. " +
-                    "Timers and navigation still work. See the README to add it.",
+                "This build doesn't include Google Home device control. Everything else works. " +
+                    "To control your devices, build Luma yourself with the Google Home APIs SDK " +
+                    "(the README on GitHub explains how).",
                 style = MaterialTheme.typography.bodyMedium,
             )
             HomeStatus.NeedsPermission -> {
@@ -428,17 +438,51 @@ private fun TryItSection() {
 }
 
 @Composable
+private fun SearchEngineRow() {
+    val settings = LocalContext.current.luma.settings
+    var engine by remember { mutableStateOf(settings.searchEngine) }
+    var expanded by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("Search engine", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "For anything Luma doesn't know how to do. Opens in your default browser.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box {
+            TextButton(onClick = { expanded = true }) { Text(engine.label) }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                SearchEngine.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        onClick = {
+                            engine = option
+                            settings.searchEngine = option
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ExamplesSection() {
     Section("Things to say") {
         listOf(
             "Set a timer for 10 minutes",
             "Set a pasta timer for 8 minutes",
+            "Turn on the flashlight",
             "Turn off the living room lights",
             "Turn off the living room lights in 10 minutes",
             "Turn on the fan for half an hour",
             "Turn off everything in the bedroom at 11 pm",
             "Navigate to the nearest coffee shop",
             "Walking directions to Central Park",
+            "How tall is Mount Everest? (anything else is a web search)",
         ).forEach {
             Text("“$it”", style = MaterialTheme.typography.bodyMedium)
         }

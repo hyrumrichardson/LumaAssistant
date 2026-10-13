@@ -13,6 +13,12 @@ sealed interface Command {
 
     /** [target] is the device phrase as spoken, e.g. "living room lights". */
     data class ControlDevice(val target: String, val turnOn: Boolean, val timing: Timing) : Command
+
+    /** The phone's own flashlight. [turnOn] is null for "toggle the flashlight". */
+    data class Flashlight(val turnOn: Boolean?) : Command
+
+    /** An explicit "search for…", and also what anything Luma doesn't understand becomes. */
+    data class WebSearch(val query: String) : Command
 }
 
 enum class TravelMode(val mapsCode: String) {

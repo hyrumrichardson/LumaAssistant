@@ -4,17 +4,59 @@ import java.util.Locale
 
 /**
  * Turns a transcribed utterance into a [Command] with hand-written patterns, in the spirit of
- * Dicio's sentence templates. Returns null for anything Luma doesn't handle.
+ * Dicio's sentence templates.
  */
 object CommandParser {
 
-    fun parse(utterance: String): Command? {
+    /** Parses [utterance]; anything that isn't a known command becomes a web search. */
+    fun parse(utterance: String): Command? =
+        parseKnown(utterance) ?: utterance.takeIf { it.isNotBlank() }?.let { Command.WebSearch(searchQuery(it)) }
+
+    /** Like [parse], but returns null instead of falling back to a web search. */
+    fun parseKnown(utterance: String): Command? {
         parseNavigation(utterance)?.let { return it }
+        parseExplicitSearch(utterance)?.let { return it }
         val text = normalize(utterance)
         if (text.isEmpty()) return null
-        return parseDevice(text, allowLoose = false)
+        return parseFlashlight(text)
+            ?: parseDevice(text, allowLoose = false)
             ?: parseTimer(text)
             ?: parseDevice(text, allowLoose = true)
+    }
+
+    // --- Web search --------------------------------------------------------------------------
+
+    private val explicitSearchRegex = Regex(
+        """^(?:(?:hey|hi|ok|okay)\s+)?(?:luma[,\s]+)?(?:(?:please|can you|could you)\s+)*""" +
+            """(?:search(?:\s+(?:the web|the internet|online|google|for))*|google|look up|bing)\s+""" +
+            """(?<query>.+?)[\s.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val wakePrefix = Regex("""^(?:(?:hey|hi|ok|okay)\s+)?luma\b[,\s]*""", RegexOption.IGNORE_CASE)
+
+    private fun parseExplicitSearch(utterance: String): Command.WebSearch? =
+        explicitSearchRegex.find(utterance.trim())?.groups?.get("query")?.value?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let(Command::WebSearch)
+
+    /** The utterance as a search query: as spoken, minus "hey Luma" and trailing punctuation. */
+    internal fun searchQuery(utterance: String): String {
+        val trimmed = utterance.trim()
+        return trimmed.replace(wakePrefix, "").trim().trimEnd('.', '!', '?', ',').ifBlank { trimmed }
+    }
+
+    // --- Flashlight --------------------------------------------------------------------------
+
+    private const val FLASH = """(?:the\s+|my\s+)?(?:flashlight|flash light|torch|flash|phone light|phones light)"""
+    private val flashVerbFirst = Regex("""^(?:turn|switch|put|flip)\s+(on|off)\s+$FLASH$""")
+    private val flashVerbAround = Regex("""^(?:(?:turn|switch|put|flip)\s+)?$FLASH\s+(on|off)$""")
+    private val flashToggle = Regex("""^(?:toggle\s+)?$FLASH$""")
+
+    private fun parseFlashlight(text: String): Command.Flashlight? {
+        (flashVerbFirst.find(text) ?: flashVerbAround.find(text))?.let {
+            return Command.Flashlight(turnOn = it.groupValues[1] == "on")
+        }
+        return if (flashToggle.matches(text)) Command.Flashlight(turnOn = null) else null
     }
 
     // --- Text cleanup ------------------------------------------------------------------------

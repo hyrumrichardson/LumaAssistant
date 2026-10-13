@@ -3,6 +3,7 @@ package io.github.hyrumrichardson.luma.assist
 import android.app.Application
 import android.app.KeyguardManager
 import android.content.Intent
+import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -94,20 +95,16 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun handle(alternatives: List<String>) {
         speech.stop()
-        // Recognisers return several guesses; use the first one Luma understands.
-        val parsed = alternatives.firstNotNullOfOrNull { text -> CommandParser.parse(text)?.let { text to it } }
-        val heard = parsed?.first ?: alternatives.first()
+        // Recognisers return several guesses; use the first one Luma understands, and otherwise
+        // search the web for the likeliest one.
+        val (heard, command) = alternatives.firstNotNullOfOrNull { text -> CommandParser.parseKnown(text)?.let { text to it } }
+            ?: alternatives.first().let { text -> text to CommandParser.parse(text) }
         _state.value = AssistUiState(phase = Phase.Thinking, heard = heard)
-
-        if (parsed == null) {
-            reply(
-                "Sorry, I can set timers, control your Google Home devices, and navigate with Google Maps.",
-                success = false,
-            )
+        if (command == null) {
+            reply(SpeechInput.describeError(SpeechRecognizer.ERROR_NO_MATCH), success = false, speak = false)
             return
         }
 
-        val command = parsed.second
         // Anyone can open the assistant over the lock screen, so switching devices needs an unlock.
         if (command is Command.ControlDevice && keyguard.isKeyguardLocked) {
             awaitingUnlock = command
