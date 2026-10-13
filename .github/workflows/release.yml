@@ -15,6 +15,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The release key's fingerprint. Public; the README lists it so users can check their copy.
+      EXPECTED_CERT_SHA256: 3bfe7b802f217e77070a1818f09986dc1ed0ac5100aa91ce625147b85444a8bc
 
     steps:
       - uses: actions/checkout@v7
@@ -76,11 +79,14 @@ jobs:
           apk=app/build/outputs/apk/release/app-release.apk
           test -f "$apk" || { echo "::error::No signed APK was built"; exit 1; }
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          "$apksigner" verify --print-certs "$apk" | tee signature.txt
-          grep -q "Signer #1 certificate DN: CN=Luma" signature.txt || {
-            echo "::error::The APK isn't signed with Luma's release key"
+          echo "Using $apksigner"
+          "$apksigner" verify --print-certs "$apk" > signature.txt 2>&1 || true
+          cat signature.txt
+          if ! tr -d ':' < signature.txt | grep -qi "$EXPECTED_CERT_SHA256"; then
+            # Put apksigner's output in the annotation, which is readable without opening the log.
+            echo "::error::The APK isn't signed with Luma's release key. apksigner said: $(grep -i -E 'signer|error|warning' signature.txt | head -6 | tr '\n' '|')"
             exit 1
-          }
+          fi
 
       - name: Publish the release
         env:
@@ -89,9 +95,8 @@ jobs:
           apk="luma-$GITHUB_REF_NAME.apk"
           cp app/build/outputs/apk/release/app-release.apk "$apk"
           sha256sum "$apk" > "$apk.sha256"
-          cert=$(grep "certificate SHA-256 digest" signature.txt | head -1 | awk '{print $NF}')
           {
-            echo "Signing certificate SHA-256: \`$cert\`"
+            echo "Signing certificate SHA-256: \`$EXPECTED_CERT_SHA256\`"
             echo
             echo "This build doesn't include Google Home device control. See the README to build Luma with it."
           } > notes.md
