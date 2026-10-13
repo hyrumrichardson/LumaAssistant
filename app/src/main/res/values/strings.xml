@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Luma</string>
+    <string name="channel_device_actions">Scheduled device actions</string>
+    <string name="channel_device_actions_description">Lets you know when Luma runs a scheduled smart home action.</string>
+</resources>

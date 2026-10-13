@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!--
+            Debug-only entry point for running typed commands over adb (see README). DUMP is held by
+            the adb shell but can't be granted to normal apps, so other apps can't inject commands.
+        -->
+        <activity-alias
+            android:name=".assist.DebugQuery"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            android:targetActivity=".assist.AssistActivity" />
+    </application>
+</manifest>
