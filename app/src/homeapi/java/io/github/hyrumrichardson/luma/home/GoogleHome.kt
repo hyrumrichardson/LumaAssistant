@@ -101,7 +101,7 @@ class GoogleHome(context: Context) : SmartHome {
         deviceIds.map { id ->
             async {
                 val error = try {
-                    val device = client.devices().get(Id(id))
+                    val device = client.devices().get(Id.of(id))
                     val onOff = device?.let {
                         withTimeoutOrNull(5_000) { it.types().first() }
                             ?.flatMap { type -> type.traits() }
