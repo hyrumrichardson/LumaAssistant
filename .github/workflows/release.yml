@@ -106,6 +106,17 @@ jobs:
             exit 1
           }
 
+      # Optional: starts a private build that adds Google Home. Skipped unless the LUMAHOME_REPO
+      # variable is set. The release is already published, so a failure here is only a warning.
+      - name: Trigger the Google Home build
+        if: vars.LUMAHOME_REPO != ''
+        env:
+          GH_TOKEN: ${{ secrets.LUMAHOME_DISPATCH_TOKEN }}
+          LUMAHOME_REPO: ${{ vars.LUMAHOME_REPO }}
+        run: |
+          gh api "repos/$LUMAHOME_REPO/dispatches" -f event_type=luma-release -f "client_payload[tag]=$GITHUB_REF_NAME" || \
+            echo "::warning::Couldn't trigger the Google Home build. Check the LUMAHOME_DISPATCH_TOKEN secret."
+
       - name: Remove the signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/luma-release.jks"
