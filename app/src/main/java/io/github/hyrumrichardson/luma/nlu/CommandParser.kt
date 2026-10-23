@@ -157,6 +157,13 @@ object CommandParser {
     // "turn the lights off in the kitchen"
     private val verbAroundPlace = Regex("""^$DEVICE_VERB\s+(.+?)\s+(on|off)\s+((?:in|at|on)\s+.+)$""")
     private val killRegex = Regex("""^(?:kill|cut)\s+(?:the\s+)?(.+)$""")
+    private val enableRegex = Regex("""^(enable|activate|disable|deactivate)\s+(.+)$""")
+    private val toggleRegex = Regex("""^(?:toggle|flip)\s+(.+)$""")
+    // "lights out", "turn the lamp out", "put out the kitchen lights". Only for lights, since "out" means other things too.
+    private val lightsOutRegex = Regex("""^(?:(?:put|turn)\s+)?(.*\b(?:lights?|lamps?))\s+out$""")
+    private val putOutRegex = Regex("""^put\s+out\s+(.*\b(?:lights?|lamps?))$""")
+    // Loose only, so "start a timer" is still a timer.
+    private val startStopRegex = Regex("""^(start|stop)\s+(.+)$""")
     private val looseRegex = Regex("""^(.+?)\s+(on|off)$""")
 
     private val afterRegex = Regex("""\b(?:in|after)\s+(?:about\s+|another\s+)?(${Durations.PATTERN})(?:\s+from now)?\b""")
@@ -215,10 +222,14 @@ object CommandParser {
         rest = rest.replace(Regex("""\s+"""), " ").trim()
             .removePrefix("and ").removePrefix("then ").removeSuffix(" and").removeSuffix(" then").trim()
 
-        val (target, turnOn) = verbFirst.find(rest)?.let { it.groupValues[2] to (it.groupValues[1] == "on") }
+        val (target: String, turnOn: Boolean?) = verbFirst.find(rest)?.let { it.groupValues[2] to (it.groupValues[1] == "on") }
             ?: verbAround.find(rest)?.let { it.groupValues[1] to (it.groupValues[2] == "on") }
             ?: verbAroundPlace.find(rest)?.let { "${it.groupValues[1]} ${it.groupValues[3]}" to (it.groupValues[2] == "on") }
             ?: killRegex.find(rest)?.let { it.groupValues[1] to false }
+            ?: enableRegex.find(rest)?.let { it.groupValues[2] to (it.groupValues[1] == "enable" || it.groupValues[1] == "activate") }
+            ?: toggleRegex.find(rest)?.let { it.groupValues[1] to null }
+            ?: (lightsOutRegex.find(rest) ?: putOutRegex.find(rest))?.let { it.groupValues[1] to false }
+            ?: (if (allowLoose) startStopRegex.find(rest)?.let { it.groupValues[2] to (it.groupValues[1] == "start") } else null)
             ?: (if (allowLoose) looseRegex.find(rest)?.let { it.groupValues[1] to (it.groupValues[2] == "on") } else null)
             ?: return null
 

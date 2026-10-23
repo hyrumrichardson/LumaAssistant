@@ -4,6 +4,7 @@ import android.content.Intent
 import io.github.hyrumrichardson.luma.LumaApp
 import io.github.hyrumrichardson.luma.home.DeviceMatcher
 import io.github.hyrumrichardson.luma.home.HomeStatus
+import io.github.hyrumrichardson.luma.home.MatchResult
 import io.github.hyrumrichardson.luma.nlu.Command
 import io.github.hyrumrichardson.luma.nlu.Durations
 import io.github.hyrumrichardson.luma.nlu.Timing
@@ -99,33 +100,45 @@ class CommandExecutor(private val app: LumaApp) {
         if (devices.isEmpty()) {
             return Outcome("I couldn't find any devices Luma can switch in your Google Home.", success = false)
         }
-        val match = DeviceMatcher.match(command.target, devices)
-            ?: return Outcome("I couldn't find anything called \"${command.target}\".", success = false)
+        val match = when (val result = DeviceMatcher.matchAll(command.target, devices)) {
+            is MatchResult.Found -> result.match
+            is MatchResult.NotFound -> return Outcome("I couldn't find anything called \"${result.part}\".", success = false)
+        }
 
         val ids = match.devices.map { it.id }
         val names = match.devices.associate { it.id to it.name }
         val what = spoken(match.description)
-        val verb = if (command.turnOn) "on" else "off"
+        val turnOn = command.turnOn ?: when (command.timing) {
+            Timing.Now, is Timing.For -> {
+                val states = home.onStates(ids)
+                if (states.isEmpty()) return Outcome("I couldn't read the state of $what to toggle.", success = false)
+                // Like a group switch: if anything is on, toggling turns it all off.
+                states.values.none { it }
+            }
+            // Whether it's on then isn't known yet.
+            else -> return Outcome("I can only toggle things right away. Say on or off to schedule it.", success = false)
+        }
+        val verb = if (turnOn) "on" else "off"
 
         return when (val timing = command.timing) {
             Timing.Now -> {
-                val failures = home.setOnOff(ids, command.turnOn)
+                val failures = home.setOnOff(ids, turnOn)
                 switchReply(failures, ids.size, names, "Turning $verb $what.", verb, what)
             }
             is Timing.After -> {
-                app.scheduler.schedule(ids, match.description, command.turnOn, System.currentTimeMillis() + timing.delay.inWholeMilliseconds)
+                app.scheduler.schedule(ids, match.description, turnOn, System.currentTimeMillis() + timing.delay.inWholeMilliseconds)
                 Outcome("OK, I'll turn $verb $what in ${Durations.format(timing.delay)}.", success = true)
             }
             is Timing.At -> {
                 val now = LocalDateTime.now()
                 val at = timing.nextOccurrence(now)
                 val millis = at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                app.scheduler.schedule(ids, match.description, command.turnOn, millis)
+                app.scheduler.schedule(ids, match.description, turnOn, millis)
                 val day = if (at.toLocalDate() != now.toLocalDate()) " tomorrow" else ""
                 Outcome("OK, I'll turn $verb $what at ${at.format(TIME_FORMAT)}$day.", success = true)
             }
             is Timing.For -> {
-                val failures = home.setOnOff(ids, command.turnOn)
+                val failures = home.setOnOff(ids, turnOn)
                 val outcome = switchReply(
                     failures, ids.size, names,
                     "Turning $verb $what for ${Durations.format(timing.duration)}.", verb, what,
@@ -133,7 +146,7 @@ class CommandExecutor(private val app: LumaApp) {
                 val succeeded = ids.filterNot { it in failures }
                 if (succeeded.isNotEmpty()) {
                     app.scheduler.schedule(
-                        succeeded, match.description, !command.turnOn,
+                        succeeded, match.description, !turnOn,
                         System.currentTimeMillis() + timing.duration.inWholeMilliseconds,
                     )
                 }

@@ -13,7 +13,7 @@ power or home, corner swipe, or whatever gesture your phone uses), and a popup l
 | "Set a timer for 10 minutes", "Set a pasta timer for 8 minutes" | Starts a timer in your Clock app |
 | "Turn on the flashlight", "Flashlight off" | Switches your phone's flashlight |
 | "Navigate to the Space Needle", "Walking directions to the library", "Take me home" | Starts Google Maps navigation |
-| "Turn off the living room lights", "Turn on the fan for half an hour", "Turn off the lights in 10 minutes", "...at 10:30 pm" | Switches Google Home devices now or later ([build it yourself](#google-home-device-control)) |
+| "Turn off the living room lights", "Toggle the lamp", "Turn on the fan for half an hour", "Turn off the lights in 10 minutes", "...at 10:30 pm" | Switches Google Home devices now or later ([build it yourself](#google-home-device-control)) |
 | Anything else, like "How tall is Mount Everest?" | Searches the web in your default browser |
 
 Commands are understood with hand-written patterns, like [Dicio](https://github.com/Stypox/dicio-android)'s
@@ -96,6 +96,13 @@ The Home APIs use OAuth to get access to your home. You'll be both the developer
   Matter devices need a [supported hub](https://developers.home.google.com/apis/android/sdk#supported_hubs).
 - Devices are matched by name and room: "kitchen lights" means every light in the Kitchen, or a single
   device named "Kitchen Lights" if you have one. "Everything in the bedroom" and "all the lights" work too.
+- For lights, "light", "lamp" and "bulb" are interchangeable and optional: "office", "office lamp" and
+  "office light" all find a light named "Office", "Office Lamp" or "Office Light".
+- Name several targets with "and": "turn off the lamp and the fan", or "the kitchen and living room
+  lights" for the lights in both rooms.
+- Besides "turn on/off", Luma understands "toggle", "flip", "enable/disable", "activate/deactivate",
+  "start/stop" and, for lights, "lights out". Toggling a group turns it all off if anything in it is on,
+  and works only right away, not scheduled.
 - Scheduled actions ("in 10 minutes", "at 11 pm", "for an hour") run on your phone with exact alarms, so
   the phone has to be on at the scheduled time. Pending actions are listed in the app, where you can
   cancel them.

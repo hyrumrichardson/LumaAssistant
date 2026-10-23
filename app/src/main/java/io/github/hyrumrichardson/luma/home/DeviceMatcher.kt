@@ -8,6 +8,13 @@ import kotlin.math.min
 /** The devices a spoken phrase refers to, plus a natural way to describe them in a reply. */
 data class DeviceMatch(val devices: List<SmartDevice>, val description: String)
 
+/** What [DeviceMatcher.matchAll] found: the devices, or the part of the phrase that matched nothing. */
+sealed interface MatchResult {
+    data class Found(val match: DeviceMatch) : MatchResult
+
+    data class NotFound(val part: String) : MatchResult
+}
+
 /**
  * Resolves phrases like "living room lights", "the lamp" or "everything in the bedroom" against
  * the user's devices. Room names and device names both count, and small transcription
@@ -18,6 +25,33 @@ object DeviceMatcher {
     private val everythingWords = setOf("everything", "device", "thing", "stuff", "every", "anything")
     private val lightWords = setOf("light", "lamp", "bulb", "lighting")
     private const val FUZZY_THRESHOLD = 0.78
+    private val andRegex = Regex("""\s+and\s+""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Like [match], but also takes several targets: "the lamp and the fan". A light word at either end
+     * applies to bare rooms in the list, so "kitchen and living room lights" and "the lights in the
+     * kitchen and the bedroom" mean those rooms' lights rather than everything in them.
+     */
+    fun matchAll(phrase: String, devices: List<SmartDevice>): MatchResult {
+        val parts = phrase.split(andRegex).map { it.trim() }.filter { it.isNotEmpty() }
+        // A name with "and" in it ("Salt and Pepper Lamp") is one target.
+        val namesHaveAnd = devices.any { d -> "and" in tokens(d.name) || d.room?.let { "and" in tokens(it) } == true }
+        if (parts.size < 2 || namesHaveAnd) {
+            match(phrase, devices)?.let { return MatchResult.Found(it) }
+            if (parts.size < 2) return MatchResult.NotFound(phrase)
+        }
+
+        val sharedLight = tokens(parts.last()).lastOrNull()?.takeIf { it in lightWords }
+            ?: tokens(parts.first()).firstOrNull()?.takeIf { it in lightWords }
+        val rooms = devices.mapNotNull { it.room }.map(::tokens).toSet()
+        val matches = parts.map { part ->
+            val target = if (sharedLight != null && tokens(part) in rooms) "$part $sharedLight" else part
+            match(target, devices) ?: return MatchResult.NotFound(part)
+        }
+        val names = matches.map { it.description }
+        val description = names.dropLast(1).joinToString(", ") + " and " + names.last()
+        return MatchResult.Found(DeviceMatch(matches.flatMap { it.devices }.distinctBy { it.id }, description))
+    }
 
     fun match(phrase: String, devices: List<SmartDevice>): DeviceMatch? {
         if (devices.isEmpty()) return null
@@ -45,19 +79,38 @@ object DeviceMatcher {
             return when {
                 rest.isEmpty() || rest.all { it in everythingWords } -> DeviceMatch(inRoom, "everything in the $roomName")
                 rest.all { it in lightWords } -> lightsIn(inRoom)?.let { DeviceMatch(it, "$roomName lights") }
-                else -> bestFuzzy(rest, inRoom)?.let(::describe)
+                else -> (byNameIgnoringLightWords(rest, inRoom) ?: bestFuzzy(rest, inRoom))?.let(::describe)
             }
+                // The room word may be part of a device's name instead ("Office Lamp" in the Study).
+                ?: byNameIgnoringLightWords(target, devices)?.let(::describe)
         }
 
         if (target.all { it in lightWords }) {
             return lightsIn(devices)?.let { DeviceMatch(it, "lights") }
         }
 
-        return bestFuzzy(target, devices)?.let(::describe)
+        return (byNameIgnoringLightWords(target, devices) ?: bestFuzzy(target, devices))?.let(::describe)
     }
 
-    private fun lightsIn(devices: List<SmartDevice>): List<SmartDevice>? =
-        devices.filter { it.isLight || tokens(it.name).any { t -> t in lightWords } }.takeIf { it.isNotEmpty() }
+    private fun isLight(device: SmartDevice): Boolean = device.isLight || tokens(device.name).any { it in lightWords }
+
+    private fun lightsIn(devices: List<SmartDevice>): List<SmartDevice>? = devices.filter(::isLight).takeIf { it.isNotEmpty() }
+
+    /**
+     * Devices whose name, or room + name, matches [target] once words like "lamp" and "light" are
+     * dropped from both, so "office", "office lamp" and "office light" all find a light named
+     * "Office", "Office Lamp" or "Office Light". A light word in [target] only matches lights.
+     */
+    private fun byNameIgnoringLightWords(target: List<String>, devices: List<SmartDevice>): List<SmartDevice>? {
+        val core = target.filterNot { it in lightWords }
+        if (core.isEmpty()) return null
+        val wantsLight = core.size < target.size
+        return devices.filter { d ->
+            val name = tokens(d.name).filterNot { it in lightWords }
+            (!wantsLight || isLight(d)) && name.isNotEmpty() &&
+                (core == name || (d.room != null && core == tokens(d.room) + name))
+        }.takeIf { it.isNotEmpty() }
+    }
 
     /** The devices whose names best match [target], if the best match is close enough. */
     private fun bestFuzzy(target: List<String>, devices: List<SmartDevice>): List<SmartDevice>? {

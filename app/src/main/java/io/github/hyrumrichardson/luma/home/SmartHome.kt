@@ -37,4 +37,7 @@ interface SmartHome {
 
     /** Returns the IDs of devices that couldn't be switched, mapped to the reason. */
     suspend fun setOnOff(deviceIds: Collection<String>, on: Boolean): Map<String, String>
+
+    /** Whether each device is on. Devices whose state couldn't be read are left out. */
+    suspend fun onStates(deviceIds: Collection<String>): Map<String, Boolean>
 }

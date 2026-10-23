@@ -111,6 +111,43 @@ class CommandParserTest {
         parse("set a timer to turn off the TV in 20 minutes"),
     )
 
+    @Test fun toggle() = assertEquals(Command.ControlDevice("lamp", null, Timing.Now), parse("toggle the lamp"))
+
+    @Test fun flip() = assertEquals(Command.ControlDevice("porch light", null, Timing.Now), parse("flip the porch light"))
+
+    @Test fun enable() = assertEquals(Command.ControlDevice("fan", true, Timing.Now), parse("enable the fan"))
+
+    @Test fun deactivate() = assertEquals(
+        Command.ControlDevice("bedroom lamp", false, Timing.Now),
+        parse("deactivate the bedroom lamp"),
+    )
+
+    @Test fun lightsOut() = assertEquals(Command.ControlDevice("lights", false, Timing.Now), parse("lights out"))
+
+    @Test fun putTheLampOut() = assertEquals(Command.ControlDevice("lamp", false, Timing.Now), parse("put the lamp out"))
+
+    @Test fun putOutTheLights() = assertEquals(
+        Command.ControlDevice("kitchen lights", false, Timing.Now),
+        parse("put out the kitchen lights"),
+    )
+
+    @Test fun startTheFan() = assertEquals(Command.ControlDevice("fan", true, Timing.Now), parse("start the fan"))
+
+    @Test fun stopTheFanLater() = assertEquals(
+        Command.ControlDevice("fan", false, Timing.After(10.minutes)),
+        parse("stop the fan in 10 minutes"),
+    )
+
+    @Test fun startATimerIsStillATimer() =
+        assertEquals(Command.SetTimer(5.minutes, null), parse("start a timer for 5 minutes"))
+
+    @Test fun severalTargets() = assertEquals(
+        Command.ControlDevice("lamp and the fan", false, Timing.Now),
+        parse("turn off the lamp and the fan"),
+    )
+
+    @Test fun outOnlyMeansOffForLights() = assertEquals(Command.WebSearch("take the trash out"), parse("take the trash out"))
+
     // --- Navigation ---
 
     @Test fun navigate() = assertEquals(

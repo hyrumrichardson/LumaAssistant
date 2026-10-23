@@ -20,6 +20,8 @@ class GoogleHome(context: Context) : SmartHome {
     override suspend fun setOnOff(deviceIds: Collection<String>, on: Boolean): Map<String, String> =
         deviceIds.associateWith { MESSAGE }
 
+    override suspend fun onStates(deviceIds: Collection<String>): Map<String, Boolean> = emptyMap()
+
     private companion object {
         const val MESSAGE = "This build of Luma doesn't include the Google Home APIs SDK."
     }

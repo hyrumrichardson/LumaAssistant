@@ -11,8 +11,11 @@ sealed interface Command {
 
     data class Navigate(val destination: String, val mode: TravelMode) : Command
 
-    /** [target] is the device phrase as spoken, e.g. "living room lights". */
-    data class ControlDevice(val target: String, val turnOn: Boolean, val timing: Timing) : Command
+    /**
+     * [target] is the device phrase as spoken, e.g. "living room lights" or "the lamp and the fan".
+     * [turnOn] is null for "toggle the lamp".
+     */
+    data class ControlDevice(val target: String, val turnOn: Boolean?, val timing: Timing) : Command
 
     /** The phone's own flashlight. [turnOn] is null for "toggle the flashlight". */
     data class Flashlight(val turnOn: Boolean?) : Command

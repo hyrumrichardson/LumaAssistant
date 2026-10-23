@@ -102,12 +102,7 @@ class GoogleHome(context: Context) : SmartHome {
             async {
                 val error = try {
                     val device = client.devices().get(Id.of(id))
-                    val onOff = device?.let {
-                        withTimeoutOrNull(5_000) { it.types().first() }
-                            ?.flatMap { type -> type.traits() }
-                            ?.filterIsInstance<OnOff>()
-                            ?.firstOrNull()
-                    }
+                    val onOff = device?.let { onOffTrait(it) }
                     when {
                         device == null -> "not found"
                         onOff == null -> "can't be switched on or off"
@@ -123,6 +118,25 @@ class GoogleHome(context: Context) : SmartHome {
             }
         }.awaitAll().filterNotNull().toMap()
     }
+
+    override suspend fun onStates(deviceIds: Collection<String>): Map<String, Boolean> = coroutineScope {
+        deviceIds.map { id ->
+            async {
+                try {
+                    client.devices().get(Id.of(id))?.let { onOffTrait(it) }?.onOff?.let { id to it }
+                } catch (e: HomeException) {
+                    null
+                }
+            }
+        }.awaitAll().filterNotNull().toMap()
+    }
+
+    /** The device's OnOff trait, or null if it has none or doesn't answer in time. */
+    private suspend fun onOffTrait(device: HomeDevice): OnOff? =
+        withTimeoutOrNull(5_000) { device.types().first() }
+            ?.flatMap { type -> type.traits() }
+            ?.filterIsInstance<OnOff>()
+            ?.firstOrNull()
 
     private companion object {
         val SUPPORTED_TYPES: List<DeviceTypeFactory<out DeviceType>> = listOf(
