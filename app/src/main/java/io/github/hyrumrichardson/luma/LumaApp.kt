@@ -30,6 +30,11 @@ class LumaSettings(context: Context) {
         get() = prefs.getBoolean("speak_replies", true)
         set(value) = prefs.edit { putBoolean("speak_replies", value) }
 
+    /** The voice replies are spoken in, by [android.speech.tts.Voice.getName]; null for the phone's default. */
+    var voiceName: String?
+        get() = prefs.getString("voice_name", null)
+        set(value) = prefs.edit { putString("voice_name", value) }
+
     var searchEngine: SearchEngine
         get() = prefs.getString("search_engine", null)
             ?.let { name -> SearchEngine.entries.firstOrNull { it.name == name } }

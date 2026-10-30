@@ -19,8 +19,10 @@ object CommandParser {
         val text = normalize(utterance)
         if (text.isEmpty()) return null
         return parseFlashlight(text)
+            ?: parseAlarm(text)
             ?: parseDevice(text, allowLoose = false)
             ?: parseTimer(text)
+            ?: parseEvent(text)
             ?: parseDevice(text, allowLoose = true)
     }
 
@@ -149,6 +151,117 @@ object CommandParser {
         return Command.SetTimer(found?.first, label)
     }
 
+    // --- Alarms ------------------------------------------------------------------------------
+
+    private val alarmStart = Regex("""^(?:(?:set|create|make|add|schedule|put|start)\b.*\balarm\b|(?:an?\s+)?alarm\b|wake\s+me\b)""")
+    private val alarmAt = Regex("""\b(?:at|for|to)\s+${ClockTimes.PATTERN}\b""")
+    private val standaloneTime = Regex("""\b${ClockTimes.STANDALONE}\b""")
+    private val alarmLabelBefore = Regex(
+        """^(?:(?:set|create|make|add|schedule|put|start)\s+)?(?:me\s+)?(?:(?:a|an|the|my)\s+)?(?:new\s+)?(.+?)\s+alarm\b""",
+    )
+    // Wider than the device parser's day parts, which can't take "night" alone ("the night light").
+    private val dayHint = Regex("""\b(tonight|morning|afternoon|evening|night)\b""")
+    private val dayWords = Regex(
+        """\b(?:today|tomorrow|tonight|(?:this|in the|tomorrow)\s+(?:morning|afternoon|evening)|morning|afternoon|evening|at night)\b""",
+    )
+
+    private fun parseAlarm(text: String): Command.SetAlarm? {
+        if (!alarmStart.containsMatchIn(text)) return null
+        var rest = text
+        var time: Timing? = null
+        val relative = afterRegex.find(rest) ?: fromNowRegex.find(rest) ?: forRegex.find(rest)
+        val delay = relative?.let { Durations.parse(it.groupValues[1]) }
+        if (relative != null && delay != null) {
+            time = Timing.After(delay)
+            rest = rest.removeRange(relative.range)
+        } else {
+            val m = alarmAt.find(rest) ?: standaloneTime.find(rest)
+            val at = m?.let { ClockTimes.at(it, dayHint.find(text)?.value) }
+            if (m != null && at != null) {
+                time = at
+                rest = rest.removeRange(m.range)
+            }
+        }
+        rest = rest.replace(dayWords, " ").replace(Regex("""\s+"""), " ").trim()
+        val label = (labelCalled.find(rest) ?: alarmLabelBefore.find(rest))
+            ?.groupValues?.get(1)?.trim()
+            ?.takeIf { it.isNotEmpty() && it !in notLabels && "alarm" !in it }
+            ?.replaceFirstChar { it.titlecase(Locale.US) }
+        return Command.SetAlarm(time, label)
+    }
+
+    // --- Calendar events ---------------------------------------------------------------------
+
+    private val eventStart = Regex(
+        """^(?:set|create|make|add|schedule|book|put|new)\s+(?:up\s+)?(?:me\s+)?(?:(?:an?|my|the)\s+)?(?:new\s+)?""" +
+            """(?<before>.*?)\s*\b(?:calendar\s+)?(?<kind>appointment|event|meeting|reservation)s?\b(?<rest>.*)$""",
+    )
+    private val calendarSuffix = Regex("""\b(?:on|to|in|into)\s+(?:my\s+|the\s+)?(?:google\s+)?calendar\b""")
+    private val eventCalled = Regex("""\b(?:called|named|titled|labeled|labelled)\s+""")
+    private val eventTime = Regex("""\b(?:at|from)\s+${ClockTimes.PATTERN}\b""")
+    private val eventLength = Regex("""\bfor\s+(?:about\s+)?(${Durations.PATTERN})\b""")
+    private val leftoverTitle = Regex("""^(?:for|about)\s+(.+)$""")
+    private val prepositions = setOf("for", "on", "at", "from", "in", "to", "and")
+    private val notEventTitles = setOf("new", "a", "an", "the", "my", "calendar", "google calendar")
+
+    private fun parseEvent(text: String): Command.CreateEvent? {
+        val start = eventStart.find(text) ?: return null
+        val kind = start.groups["kind"]!!.value
+        val before = start.groups["before"]!!.value.trim()
+        var rest = start.groups["rest"]!!.value.replace(calendarSuffix, " ")
+        val dayPart = dayHint.find(rest)?.value
+
+        // A title after "called" runs until a date, time or length starts. It keeps at least one
+        // word, so "called monday prep for friday" is titled "monday prep".
+        var title: String? = null
+        val called = eventCalled.find(rest)
+        if (called != null) {
+            val from = called.range.last + 1
+            val firstWordEnd = rest.indexOf(' ', from).let { if (it < 0) rest.length else it }
+            val end = listOfNotNull(
+                CalendarDates.find(rest, firstWordEnd)?.second?.first,
+                eventTime.find(rest, firstWordEnd)?.range?.first,
+                standaloneTime.find(rest, firstWordEnd)?.range?.first,
+                eventLength.find(rest, firstWordEnd)?.range?.first,
+                dayWords.find(rest, firstWordEnd)?.range?.first,
+            ).minOrNull() ?: rest.length
+            title = rest.substring(from, end).trim()
+            rest = rest.removeRange(called.range.first, end)
+        }
+
+        var length: kotlin.time.Duration? = null
+        val lengthMatch = eventLength.find(rest)
+        val parsedLength = lengthMatch?.let { Durations.parse(it.groupValues[1]) }
+        if (lengthMatch != null && parsedLength != null) {
+            length = parsedLength
+            rest = rest.removeRange(lengthMatch.range)
+        }
+
+        var time: Timing.At? = null
+        val timeMatch = eventTime.find(rest) ?: standaloneTime.find(rest)
+        val parsedTime = timeMatch?.let { ClockTimes.at(it, dayPart) }
+        if (timeMatch != null && parsedTime != null) {
+            time = parsedTime
+            rest = rest.removeRange(timeMatch.range)
+        }
+
+        val date = CalendarDates.find(rest)?.let { (date, range) ->
+            rest = rest.removeRange(range)
+            date
+        }
+
+        val leftover = rest.replace(dayWords, " ").replace(Regex("""\s+"""), " ").trim()
+        val chosenTitle = title?.takeIf { it.isNotEmpty() }
+            ?: leftoverTitle.find(leftover)?.groupValues?.get(1)
+            ?: leftover.takeIf { it.startsWith("with ") }?.let { "$kind $it" }
+            ?: before.takeIf { it.isNotEmpty() && it !in notEventTitles }
+        val cleanTitle = chosenTitle
+            ?.split(' ')?.dropLastWhile { it in prepositions }?.joinToString(" ")
+            ?.takeIf { it.isNotBlank() }
+            ?.replaceFirstChar { it.titlecase(Locale.US) }
+        return Command.CreateEvent(cleanTitle, date, time, length)
+    }
+
     // --- Device control ----------------------------------------------------------------------
 
     private const val DEVICE_VERB = """(?:turn|switch|shut|power|flip|put)"""
@@ -169,10 +282,8 @@ object CommandParser {
     private val afterRegex = Regex("""\b(?:in|after)\s+(?:about\s+|another\s+)?(${Durations.PATTERN})(?:\s+from now)?\b""")
     private val fromNowRegex = Regex("""\b(${Durations.PATTERN})\s+from now\b""")
     private val forRegex = Regex("""\bfor\s+(?:the next\s+|another\s+|about\s+)?(${Durations.PATTERN})\b""")
-    private val atRegex = Regex(
-        """\b(?:at|by)\s+(?:(\d{1,2})(?:(?::|\s)(\d{2}))?(?:\s*(am|pm|oclock|o clock))?|(noon|midnight))\b""",
-    )
-    private val dayPartRegex = Regex("""\b(tonight|this evening|this afternoon|this morning|in the morning|in the evening)\b""")
+    private val atRegex = Regex("""\b(?:at|by)\s+${ClockTimes.PATTERN}\b""")
+    private val dayPartRegex = ClockTimes.dayPartRegex
 
     private fun parseDevice(text: String, allowLoose: Boolean): Command.ControlDevice? {
         var rest = text
@@ -195,24 +306,7 @@ object CommandParser {
             takeDuration(forRegex) { Timing.For(it) }
         if (!gotTiming) {
             atRegex.find(rest)?.let { m ->
-                val (hourText, minuteText, suffix, named) = m.destructured
-                val at = when (named) {
-                    "noon" -> Timing.At(12, 0, true)
-                    "midnight" -> Timing.At(0, 0, null)
-                    else -> {
-                        val hour = hourText.toInt()
-                        val minute = minuteText.ifEmpty { "0" }.toInt()
-                        val pm = when {
-                            suffix == "am" -> false
-                            suffix == "pm" -> true
-                            dayPart == null -> null
-                            dayPart.contains("morning") -> false
-                            else -> true
-                        }
-                        if (hour > 23 || minute > 59) null else Timing.At(hour, minute, pm)
-                    }
-                }
-                if (at != null) {
+                ClockTimes.at(m, dayPart)?.let { at ->
                     timing = at
                     rest = rest.removeRange(m.range)
                 }

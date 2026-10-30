@@ -19,7 +19,11 @@
         <intent>
             <action android:name="android.intent.action.SET_TIMER" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
         <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.google.android.calendar" />
         <!-- To find the default browser for web searches. -->
         <intent>
             <action android:name="android.intent.action.VIEW" />

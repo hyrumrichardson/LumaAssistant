@@ -9,11 +9,13 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.tts.Voice
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,10 +24,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -35,6 +39,7 @@ import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Power
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,12 +54,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +80,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hyrumrichardson.luma.assist.AssistActivity
+import io.github.hyrumrichardson.luma.assist.Speaker
 import io.github.hyrumrichardson.luma.home.HomeStatus
 import io.github.hyrumrichardson.luma.home.SmartDevice
 import io.github.hyrumrichardson.luma.schedule.ScheduledAction
@@ -80,6 +88,7 @@ import io.github.hyrumrichardson.luma.ui.LumaAvatar
 import io.github.hyrumrichardson.luma.ui.LumaTheme
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -253,6 +262,7 @@ private fun SetupScreen() {
                         }
                         Switch(checked = speak, onCheckedChange = { speak = it; app.settings.speakReplies = it })
                     }
+                    if (speak) VoiceRow()
                     SearchEngineRow()
                 }
             }
@@ -438,6 +448,84 @@ private fun TryItSection() {
 }
 
 @Composable
+private fun VoiceRow() {
+    val context = LocalContext.current
+    val settings = context.luma.settings
+    val speaker = remember { Speaker(context) }
+    DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
+    val voices by speaker.voices.collectAsStateWithLifecycle()
+    val labels = remember(voices) { voiceLabels(voices.orEmpty()) }
+    var selected by remember { mutableStateOf(settings.voiceName) }
+    var choosing by remember { mutableStateOf(false) }
+
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("Voice", style = MaterialTheme.typography.titleSmall)
+            Text(
+                selected?.let(labels::get) ?: "Phone default",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = { choosing = true }, enabled = !voices.isNullOrEmpty()) { Text("Change") }
+    }
+
+    if (choosing) {
+        fun choose(name: String?) {
+            selected = name
+            settings.voiceName = name
+            speaker.speak(VOICE_SAMPLE, name) {}
+        }
+        AlertDialog(
+            onDismissRequest = { speaker.stop(); choosing = false },
+            confirmButton = { TextButton(onClick = { speaker.stop(); choosing = false }) { Text("Done") } },
+            title = { Text("Voice") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    item {
+                        VoiceOption("Phone default", "Set in Android's text-to-speech settings", selected == null) { choose(null) }
+                    }
+                    items(voices.orEmpty(), key = { it.name }) { voice ->
+                        VoiceOption(labels[voice.name] ?: voice.name, null, selected == voice.name) { choose(voice.name) }
+                    }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun VoiceOption(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            if (detail != null) {
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+private const val VOICE_SAMPLE = "Hi, I'm Luma. Turning off the living room lights."
+
+/**
+ * Names for voices, like "English (United Kingdom) · Voice 2". Engines name voices with codes such as
+ * "en-gb-x-gbd-local", so they're numbered within each accent instead.
+ */
+private fun voiceLabels(voices: List<Voice>): Map<String, String> =
+    voices.groupBy { it.locale }.flatMap { (locale, group) ->
+        group.mapIndexed { i, voice ->
+            val online = if (voice.isNetworkConnectionRequired) " · needs internet" else ""
+            voice.name to "${locale.getDisplayName(Locale.getDefault())} · Voice ${i + 1}$online"
+        }
+    }.toMap()
+
+@Composable
 private fun SearchEngineRow() {
     val settings = LocalContext.current.luma.settings
     var engine by remember { mutableStateOf(settings.searchEngine) }
@@ -475,6 +563,8 @@ private fun ExamplesSection() {
         listOf(
             "Set a timer for 10 minutes",
             "Set a pasta timer for 8 minutes",
+            "Set an alarm for 7 am",
+            "Set appointment called dentist for Friday at 3 pm",
             "Turn on the flashlight",
             "Turn off the living room lights",
             "Turn off the living room lights in 10 minutes",

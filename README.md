@@ -11,6 +11,8 @@ power or home, corner swipe, or whatever gesture your phone uses), and a popup l
 | Say | What happens |
 | --- | --- |
 | "Set a timer for 10 minutes", "Set a pasta timer for 8 minutes" | Starts a timer in your Clock app |
+| "Set an alarm for 7 am", "Wake me up at 6:30", "Set a gym alarm for 6" | Sets an alarm in your Clock app |
+| "Set appointment called dentist for Friday at 3 pm", "Schedule a meeting with Bob tomorrow at 10" | Opens a new Google Calendar event, filled in, for you to save |
 | "Turn on the flashlight", "Flashlight off" | Switches your phone's flashlight |
 | "Navigate to the Space Needle", "Walking directions to the library", "Take me home" | Starts Google Maps navigation |
 | "Turn off the living room lights", "Toggle the lamp", "Turn on the fan for half an hour", "Turn off the lights in 10 minutes", "...at 10:30 pm" | Switches Google Home devices now or later ([build it yourself](#google-home-device-control)) |

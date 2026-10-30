@@ -1,6 +1,9 @@
 package io.github.hyrumrichardson.luma.nlu
 
+import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.Month
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -48,6 +51,92 @@ class CommandParserTest {
 
     @Test fun politeTimer() =
         assertEquals(Command.SetTimer(3.minutes, null), parse("Hey Luma, can you set a timer for three minutes please"))
+
+    // --- Alarms ---
+
+    @Test fun alarmAt() = assertEquals(Command.SetAlarm(Timing.At(7, 0, false), null), parse("Set an alarm for 7 a.m."))
+
+    @Test fun alarmWithMinutes() = assertEquals(Command.SetAlarm(Timing.At(6, 30, null), null), parse("set an alarm for six thirty"))
+
+    @Test fun alarmColon() = assertEquals(Command.SetAlarm(Timing.At(6, 45, null), null), parse("set alarm 6:45"))
+
+    @Test fun wakeMeUp() = assertEquals(Command.SetAlarm(Timing.At(7, 0, false), null), parse("wake me up at 7 tomorrow morning"))
+
+    @Test fun alarmRelative() = assertEquals(Command.SetAlarm(Timing.After(8.hours), null), parse("set an alarm for 8 hours from now"))
+
+    @Test fun wakeMeIn() = assertEquals(Command.SetAlarm(Timing.After(20.minutes), null), parse("wake me in 20 minutes"))
+
+    @Test fun alarmLabelBefore() = assertEquals(Command.SetAlarm(Timing.At(6, 0, false), "Gym"), parse("set a gym alarm for 6 am"))
+
+    @Test fun alarmCalled() = assertEquals(Command.SetAlarm(Timing.At(7, 15, null), "Work"), parse("set an alarm called work for 7:15"))
+
+    @Test fun alarmStandalone() = assertEquals(Command.SetAlarm(Timing.At(9, 0, true), null), parse("set a 9 pm alarm"))
+
+    @Test fun alarmNoTime() = assertEquals(Command.SetAlarm(null, null), parse("set an alarm"))
+
+    @Test fun alarmIsNotATimer() = assertEquals(Command.SetAlarm(Timing.After(10.minutes), null), parse("set an alarm for 10 minutes"))
+
+    @Test fun turnOffTheAlarmIsNotANewAlarm() = assertEquals(
+        Command.ControlDevice("alarm", false, Timing.Now),
+        parse("turn off the alarm"),
+    )
+
+    // --- Calendar events ---
+
+    @Test fun appointmentTemplate() = assertEquals(
+        Command.CreateEvent("Dentist", CalendarDate.Weekday(DayOfWeek.FRIDAY, next = false), Timing.At(3, 0, true), null),
+        parse("Set appointment called dentist for Friday at 3 p.m."),
+    )
+
+    @Test fun appointmentTomorrow() = assertEquals(
+        Command.CreateEvent("Haircut", CalendarDate.InDays(1), Timing.At(10, 30, null), null),
+        parse("set an appointment called haircut for tomorrow at 10:30"),
+    )
+
+    @Test fun appointmentMonthDay() = assertEquals(
+        Command.CreateEvent("Car service", CalendarDate.MonthDay(Month.MARCH, 3), Timing.At(9, 0, false), null),
+        parse("set appointment called car service for March 3rd at 9 am"),
+    )
+
+    @Test fun appointmentSpokenOrdinal() = assertEquals(
+        Command.CreateEvent("Party", CalendarDate.MonthDay(Month.OCTOBER, 21), Timing.At(7, 0, true), null),
+        parse("set appointment called party for the twenty first of october at seven pm"),
+    )
+
+    @Test fun appointmentDayOfMonth() = assertEquals(
+        Command.CreateEvent("Rent", CalendarDate.DayOfMonth(15), null, null),
+        parse("create an event called rent on the 15th"),
+    )
+
+    @Test fun titleKeepsDateWords() = assertEquals(
+        Command.CreateEvent("Monday prep", CalendarDate.Weekday(DayOfWeek.FRIDAY, next = false), null, null),
+        parse("set appointment called monday prep for friday"),
+    )
+
+    @Test fun titleBeforeKind() = assertEquals(
+        Command.CreateEvent("Dentist", CalendarDate.Weekday(DayOfWeek.TUESDAY, next = true), Timing.At(2, 0, null), 30.minutes),
+        parse("make a dentist appointment next tuesday at 2 for 30 minutes"),
+    )
+
+    @Test fun titleAfterFor() = assertEquals(
+        Command.CreateEvent("Dentist", CalendarDate.Weekday(DayOfWeek.FRIDAY, next = false), Timing.At(3, 0, null), null),
+        parse("schedule an appointment for dentist on friday at 3"),
+    )
+
+    @Test fun meetingWith() = assertEquals(
+        Command.CreateEvent("Meeting with bob", CalendarDate.InDays(1), Timing.At(10, 0, false), null),
+        parse("schedule a meeting with bob tomorrow at 10 am on my calendar"),
+    )
+
+    @Test fun eventTonight() = assertEquals(
+        Command.CreateEvent("Dinner", CalendarDate.InDays(0), Timing.At(7, 0, true), null),
+        parse("add an event called dinner tonight at 7"),
+    )
+
+    @Test fun eventNoDetails() = assertEquals(Command.CreateEvent(null, null, null, null), parse("create a new event"))
+
+    @Test fun timerForAMeetingIsATimer() =
+        assertEquals(Command.SetTimer(5.minutes, "Meeting"), parse("set a timer for 5 minutes for the meeting"))
 
     // --- Devices ---
 
@@ -239,6 +328,42 @@ class TimingTest {
 
     @Test fun midnight() =
         assertEquals(LocalDateTime.of(2026, 10, 14, 0, 0), Timing.At(0, 0, null).nextOccurrence(evening))
+}
+
+class CalendarDateTest {
+    private val thursday = LocalDate.of(2026, 10, 29)
+
+    @Test fun weekdayIncludesToday() =
+        assertEquals(thursday, CalendarDate.Weekday(DayOfWeek.THURSDAY, next = false).resolve(thursday))
+
+    @Test fun nextWeekdaySkipsToday() =
+        assertEquals(LocalDate.of(2026, 11, 5), CalendarDate.Weekday(DayOfWeek.THURSDAY, next = true).resolve(thursday))
+
+    @Test fun comingFriday() =
+        assertEquals(LocalDate.of(2026, 10, 30), CalendarDate.Weekday(DayOfWeek.FRIDAY, next = false).resolve(thursday))
+
+    @Test fun passedMonthDayIsNextYear() =
+        assertEquals(LocalDate.of(2027, 3, 3), CalendarDate.MonthDay(Month.MARCH, 3).resolve(thursday))
+
+    @Test fun leapDayFindsLeapYear() =
+        assertEquals(LocalDate.of(2028, 2, 29), CalendarDate.MonthDay(Month.FEBRUARY, 29).resolve(thursday))
+
+    @Test fun noSuchDate() = assertNull(CalendarDate.MonthDay(Month.FEBRUARY, 30).resolve(thursday))
+
+    @Test fun passedDayOfMonthIsNextMonth() =
+        assertEquals(LocalDate.of(2026, 11, 15), CalendarDate.DayOfMonth(15).resolve(thursday))
+
+    @Test fun thirtyFirstSkipsShortMonths() =
+        assertEquals(LocalDate.of(2026, 12, 31), CalendarDate.DayOfMonth(31).resolve(LocalDate.of(2026, 11, 2)))
+
+    @Test fun appointmentHours() {
+        assertEquals(15, Timing.At(3, 0, null).appointmentHour())
+        assertEquals(9, Timing.At(9, 0, null).appointmentHour())
+        assertEquals(12, Timing.At(12, 0, null).appointmentHour())
+        assertEquals(21, Timing.At(9, 0, true).appointmentHour())
+        assertEquals(0, Timing.At(12, 0, false).appointmentHour())
+        assertEquals(17, Timing.At(17, 0, null).appointmentHour())
+    }
 }
 
 class DurationsTest {

@@ -12,7 +12,9 @@ import io.github.hyrumrichardson.luma.phone.Flashlight
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 
 /** What the popup should do once a command has been handled. */
@@ -31,6 +33,8 @@ class CommandExecutor(private val app: LumaApp) {
 
     suspend fun execute(command: Command): Outcome = when (command) {
         is Command.SetTimer -> timer(command)
+        is Command.SetAlarm -> alarm(command)
+        is Command.CreateEvent -> event(command)
         is Command.Navigate -> Outcome(
             reply = "Navigating to ${command.destination}",
             success = true,
@@ -78,6 +82,63 @@ class CommandExecutor(private val app: LumaApp) {
             reply = "$name set for ${Durations.format(length)}.",
             success = true,
             launch = AppIntents.timer(length, command.label),
+        )
+    }
+
+    private fun alarm(command: Command.SetAlarm): Outcome {
+        val now = LocalDateTime.now()
+        val at = when (val time = command.time) {
+            is Timing.At -> time.nextOccurrence(now)
+            // Alarms go off on the minute, so round to the nearest one.
+            is Timing.After -> now.plusSeconds(time.delay.inWholeSeconds + 30).truncatedTo(ChronoUnit.MINUTES)
+            else -> return Outcome(
+                reply = "Opening your alarms",
+                success = true,
+                launch = AppIntents.alarms(),
+                closeImmediately = true,
+            )
+        }
+        val name = command.label?.let { "$it alarm" } ?: "Alarm"
+        val day = if (at.toLocalDate() != now.toLocalDate()) " tomorrow" else ""
+        return Outcome(
+            reply = "$name set for ${at.format(TIME_FORMAT)}$day.",
+            success = true,
+            launch = AppIntents.alarm(at.hour, at.minute, command.label),
+        )
+    }
+
+    private fun event(command: Command.CreateEvent): Outcome {
+        val now = LocalDateTime.now()
+        val date = command.date?.let { it.resolve(now.toLocalDate()) ?: return Outcome("That date doesn't exist.", success = false) }
+        val time = command.time
+        val zone = ZoneId.systemDefault()
+        val what = command.title?.let { "\"$it\"" } ?: "a new event"
+
+        val (begin, end, allDay) = when {
+            time != null -> {
+                var start = (date ?: now.toLocalDate()).atTime(time.appointmentHour(), time.minute)
+                // With no date, the next time it comes round.
+                if (date == null && !start.isAfter(now)) start = start.plusDays(1)
+                val finish = start.plusSeconds((command.length ?: 1.hours).inWholeSeconds)
+                Triple(start.atZone(zone), finish.atZone(zone), false)
+            }
+            date != null -> Triple(date.atStartOfDay(zone), date.plusDays(1).atStartOfDay(zone), true)
+            else -> Triple(null, null, false)
+        }
+        val reply = when {
+            begin == null -> "Opening Calendar for $what."
+            allDay -> "Adding $what on ${begin.format(DATE_FORMAT)}."
+            else -> "Adding $what on ${begin.format(DATE_FORMAT)} at ${begin.format(TIME_FORMAT)}."
+        }
+        fun intent(googleCalendar: Boolean) = AppIntents.calendarEvent(
+            command.title, begin?.toInstant()?.toEpochMilli(), end?.toInstant()?.toEpochMilli(), allDay, googleCalendar,
+        )
+        return Outcome(
+            reply = reply,
+            success = true,
+            launch = intent(googleCalendar = true),
+            fallbackLaunch = intent(googleCalendar = false),
+            closeImmediately = true,
         )
     }
 
@@ -177,5 +238,6 @@ class CommandExecutor(private val app: LumaApp) {
 
     private companion object {
         val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+        val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)
     }
 }

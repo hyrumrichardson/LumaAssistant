@@ -5,13 +5,15 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.AlarmClock
+import android.provider.CalendarContract
 import androidx.core.net.toUri
 import io.github.hyrumrichardson.luma.nlu.TravelMode
 import kotlin.time.Duration
 
-/** Intents that hand work off to the Clock, Maps and browser apps. */
+/** Intents that hand work off to the Clock, Calendar, Maps and browser apps. */
 object AppIntents {
     private const val MAPS_PACKAGE = "com.google.android.apps.maps"
+    private const val CALENDAR_PACKAGE = "com.google.android.calendar"
     const val MAX_TIMER_SECONDS = 24 * 60 * 60
 
     /** Starts a timer in the default clock app; with no [length], opens its timer screen instead. */
@@ -23,6 +25,32 @@ object AppIntents {
         if (label != null) putExtra(AlarmClock.EXTRA_MESSAGE, label)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+
+    /** Sets an alarm in the default clock app for the next time it's [hour]:[minute] (0 to 23). */
+    fun alarm(hour: Int, minute: Int, label: String?): Intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+        putExtra(AlarmClock.EXTRA_HOUR, hour)
+        putExtra(AlarmClock.EXTRA_MINUTES, minute)
+        putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+        if (label != null) putExtra(AlarmClock.EXTRA_MESSAGE, label)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    /** Opens the default clock app's list of alarms. */
+    fun alarms(): Intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    /**
+     * Opens a new calendar event, filled in, for the user to check and save; in Google Calendar when
+     * [googleCalendar] is set. Times are in epoch milliseconds.
+     */
+    fun calendarEvent(title: String?, begin: Long?, end: Long?, allDay: Boolean, googleCalendar: Boolean): Intent =
+        Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
+            if (title != null) putExtra(CalendarContract.Events.TITLE, title)
+            if (begin != null) putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+            if (end != null) putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end)
+            if (allDay) putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
+            if (googleCalendar) setPackage(CALENDAR_PACKAGE)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
 
     /** Starts turn-by-turn navigation in Google Maps. */
     fun navigation(destination: String, mode: TravelMode): Intent =

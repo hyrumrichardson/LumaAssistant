@@ -1,7 +1,9 @@
 package io.github.hyrumrichardson.luma.home
 
 import android.content.Context
+import android.util.Log
 import androidx.activity.ComponentActivity
+import com.google.home.ConnectivityState
 import com.google.home.DeviceType
 import com.google.home.DeviceTypeFactory
 import com.google.home.FactoryRegistry
@@ -102,17 +104,21 @@ class GoogleHome(context: Context) : SmartHome {
             async {
                 val error = try {
                     val device = client.devices().get(Id.of(id))
-                    val onOff = device?.let { onOffTrait(it) }
+                    val type = device?.let { onOffType(it) }
+                    val onOff = type?.trait(OnOff)
                     when {
                         device == null -> "not found"
                         onOff == null -> "can't be switched on or off"
+                        type.metadata.sourceConnectivity.connectivityState == ConnectivityState.OFFLINE ->
+                            "it's offline in Google Home"
                         else -> {
                             if (on) onOff.on() else onOff.off()
                             null
                         }
                     }
                 } catch (e: HomeException) {
-                    e.message ?: "Google Home error"
+                    Log.w(TAG, "Switching $id ${if (on) "on" else "off"} failed", e)
+                    explain(e)
                 }
                 error?.let { id to it }
             }
@@ -123,7 +129,7 @@ class GoogleHome(context: Context) : SmartHome {
         deviceIds.map { id ->
             async {
                 try {
-                    client.devices().get(Id.of(id))?.let { onOffTrait(it) }?.onOff?.let { id to it }
+                    client.devices().get(Id.of(id))?.let { onOffType(it) }?.trait(OnOff)?.onOff?.let { id to it }
                 } catch (e: HomeException) {
                     null
                 }
@@ -131,14 +137,26 @@ class GoogleHome(context: Context) : SmartHome {
         }.awaitAll().filterNotNull().toMap()
     }
 
-    /** The device's OnOff trait, or null if it has none or doesn't answer in time. */
-    private suspend fun onOffTrait(device: HomeDevice): OnOff? =
-        withTimeoutOrNull(5_000) { device.types().first() }
-            ?.flatMap { type -> type.traits() }
-            ?.filterIsInstance<OnOff>()
-            ?.firstOrNull()
+    /** The device's type that has the OnOff trait, or null if it has none or doesn't answer in time. */
+    private suspend fun onOffType(device: HomeDevice): DeviceType? =
+        withTimeoutOrNull(5_000) { device.types().first() }?.firstOrNull { it.trait(OnOff) != null }
+
+    /**
+     * The exception's message, plus what its sub-errors say. For a failed command, the top-level
+     * message only names the device component; the reason is in the sub-error.
+     */
+    private fun explain(e: HomeException): String {
+        val reasons = e.subErrors.values.map { sub ->
+            listOfNotNull(sub.message.takeIf { it.isNotBlank() }, sub.reason?.takeIf { it.isNotBlank() })
+                .joinToString(", ")
+                .ifEmpty { "no details" } + " (code ${sub.code})"
+        }.distinct()
+        return if (reasons.isEmpty()) e.message ?: "Google Home error" else reasons.joinToString("; ")
+    }
 
     private companion object {
+        const val TAG = "GoogleHome"
+
         val SUPPORTED_TYPES: List<DeviceTypeFactory<out DeviceType>> = listOf(
             OnOffLightDevice,
             DimmableLightDevice,
