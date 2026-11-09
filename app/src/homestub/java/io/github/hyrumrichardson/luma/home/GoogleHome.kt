@@ -17,8 +17,8 @@ class GoogleHome(context: Context) : SmartHome {
 
     override suspend fun devices(): List<SmartDevice> = emptyList()
 
-    override suspend fun setOnOff(deviceIds: Collection<String>, on: Boolean): Map<String, String> =
-        deviceIds.associateWith { MESSAGE }
+    override suspend fun setOnOff(deviceIds: Collection<String>, on: Boolean): Map<String, SwitchFailure> =
+        deviceIds.associateWith { SwitchFailure(MESSAGE) }
 
     override suspend fun onStates(deviceIds: Collection<String>): Map<String, Boolean> = emptyMap()
 

@@ -5,6 +5,7 @@ import io.github.hyrumrichardson.luma.LumaApp
 import io.github.hyrumrichardson.luma.home.DeviceMatcher
 import io.github.hyrumrichardson.luma.home.HomeStatus
 import io.github.hyrumrichardson.luma.home.MatchResult
+import io.github.hyrumrichardson.luma.home.SwitchFailure
 import io.github.hyrumrichardson.luma.nlu.Command
 import io.github.hyrumrichardson.luma.nlu.Durations
 import io.github.hyrumrichardson.luma.nlu.Timing
@@ -184,7 +185,9 @@ class CommandExecutor(private val app: LumaApp) {
         return when (val timing = command.timing) {
             Timing.Now -> {
                 val failures = home.setOnOff(ids, turnOn)
-                switchReply(failures, ids.size, names, "Turning $verb $what.", verb, what)
+                val successReply = "Turning $verb $what."
+                retryInGoogleHome(failures, ids, names, turnOn, successReply, verb, what)
+                    ?: switchReply(failures, ids.size, names, successReply, verb, what)
             }
             is Timing.After -> {
                 app.scheduler.schedule(ids, match.description, turnOn, System.currentTimeMillis() + timing.delay.inWholeMilliseconds)
@@ -200,24 +203,52 @@ class CommandExecutor(private val app: LumaApp) {
             }
             is Timing.For -> {
                 val failures = home.setOnOff(ids, turnOn)
-                val outcome = switchReply(
-                    failures, ids.size, names,
-                    "Turning $verb $what for ${Durations.format(timing.duration)}.", verb, what,
-                )
-                val succeeded = ids.filterNot { it in failures }
-                if (succeeded.isNotEmpty()) {
-                    app.scheduler.schedule(
-                        succeeded, match.description, !turnOn,
-                        System.currentTimeMillis() + timing.duration.inWholeMilliseconds,
-                    )
+                val successReply = "Turning $verb $what for ${Durations.format(timing.duration)}."
+                // Switches them back once the time is up.
+                val revert = { succeeded: List<String> ->
+                    if (succeeded.isNotEmpty()) {
+                        app.scheduler.schedule(
+                            succeeded, match.description, !turnOn,
+                            System.currentTimeMillis() + timing.duration.inWholeMilliseconds,
+                        )
+                    }
                 }
-                outcome
+                revert(ids.filterNot { it in failures })
+                retryInGoogleHome(failures, ids, names, turnOn, successReply, verb, what, onSwitched = revert)
+                    ?: switchReply(failures, ids.size, names, successReply, verb, what)
             }
         }
     }
 
+    /**
+     * When some devices failed because Google Home had no route to them, opens Google Home and
+     * retries them in the background with [GoogleHomeRetry], which gives the reply once it's done.
+     * [onSwitched] gets the devices the retry switched. Null if no device failed that way, or Google
+     * Home isn't installed.
+     */
+    private fun retryInGoogleHome(
+        failures: Map<String, SwitchFailure>,
+        ids: List<String>,
+        names: Map<String, String>,
+        turnOn: Boolean,
+        successReply: String,
+        verb: String,
+        what: String,
+        onSwitched: (List<String>) -> Unit = {},
+    ): Outcome? {
+        val noRoute = failures.filterValues { it.noRoute }.keys
+        if (noRoute.isEmpty()) return null
+        val open = app.homeRetry.openIntent() ?: return null
+        val otherFailures = failures.filterValues { !it.noRoute }
+        app.homeRetry.retry(noRoute, turnOn) { stillFailed ->
+            onSwitched(noRoute.filterNot { it in stillFailed })
+            switchReply(otherFailures + stillFailed, ids.size, names, successReply, verb, what).reply
+        }
+        return Outcome("Opening Google Home to reach $what…", success = true, launch = open, closeImmediately = true)
+    }
+
     private fun switchReply(
-        failures: Map<String, String>,
+        failures: Map<String, SwitchFailure>,
         total: Int,
         names: Map<String, String>,
         successReply: String,
@@ -225,7 +256,7 @@ class CommandExecutor(private val app: LumaApp) {
         what: String,
     ): Outcome = when {
         failures.isEmpty() -> Outcome(successReply, success = true)
-        failures.size == total -> Outcome("I couldn't turn $verb $what: ${failures.values.first()}", success = false)
+        failures.size == total -> Outcome("I couldn't turn $verb $what: ${failures.values.first().reason}", success = false)
         else -> {
             val missed = failures.keys.mapNotNull(names::get).joinToString(", ")
             Outcome("Turned $verb ${total - failures.size} of $total, but $missed didn't respond.", success = false)

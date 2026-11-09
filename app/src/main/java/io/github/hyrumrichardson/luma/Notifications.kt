@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 object Notifications {
     private const val CHANNEL_DEVICE_ACTIONS = "device_actions"
     const val WORKING_ID = 1
+    const val GOOGLE_HOME_RETRY_ID = 2
 
     fun createChannels(context: Context) {
         val channel = NotificationChannel(

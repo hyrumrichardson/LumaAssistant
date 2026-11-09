@@ -10,6 +10,16 @@ data class SmartDevice(
     val isLight: Boolean,
 )
 
+/** Why a device couldn't be switched. */
+data class SwitchFailure(
+    val reason: String,
+    /**
+     * Google Home had no way to reach the device. Without a hub that can, Matter devices are only
+     * reachable while the Google Home app has connected to them, so opening it can help.
+     */
+    val noRoute: Boolean = false,
+)
+
 sealed interface HomeStatus {
     /** Luma was built without the Home APIs SDK (see README). */
     data object SdkMissing : HomeStatus
@@ -36,7 +46,7 @@ interface SmartHome {
     suspend fun devices(): List<SmartDevice>
 
     /** Returns the IDs of devices that couldn't be switched, mapped to the reason. */
-    suspend fun setOnOff(deviceIds: Collection<String>, on: Boolean): Map<String, String>
+    suspend fun setOnOff(deviceIds: Collection<String>, on: Boolean): Map<String, SwitchFailure>
 
     /** Whether each device is on. Devices whose state couldn't be read are left out. */
     suspend fun onStates(deviceIds: Collection<String>): Map<String, Boolean>

@@ -24,6 +24,8 @@
         </intent>
         <package android:name="com.google.android.apps.maps" />
         <package android:name="com.google.android.calendar" />
+        <!-- Opened when Google Home can't reach a device until its app connects to it. -->
+        <package android:name="com.google.android.apps.chromecast.app" />
         <!-- To find the default browser for web searches. -->
         <intent>
             <action android:name="android.intent.action.VIEW" />

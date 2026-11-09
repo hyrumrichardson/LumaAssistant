@@ -99,7 +99,7 @@ class GoogleHome(context: Context) : SmartHome {
         )
     }
 
-    override suspend fun setOnOff(deviceIds: Collection<String>, on: Boolean): Map<String, String> = coroutineScope {
+    override suspend fun setOnOff(deviceIds: Collection<String>, on: Boolean): Map<String, SwitchFailure> = coroutineScope {
         deviceIds.map { id ->
             async {
                 val error = try {
@@ -107,10 +107,10 @@ class GoogleHome(context: Context) : SmartHome {
                     val type = device?.let { onOffType(it) }
                     val onOff = type?.trait(OnOff)
                     when {
-                        device == null -> "not found"
-                        onOff == null -> "can't be switched on or off"
+                        device == null -> SwitchFailure("not found")
+                        onOff == null -> SwitchFailure("can't be switched on or off")
                         type.metadata.sourceConnectivity.connectivityState == ConnectivityState.OFFLINE ->
-                            "it's offline in Google Home"
+                            SwitchFailure("it's offline in Google Home")
                         else -> {
                             if (on) onOff.on() else onOff.off()
                             null
@@ -118,7 +118,7 @@ class GoogleHome(context: Context) : SmartHome {
                     }
                 } catch (e: HomeException) {
                     Log.w(TAG, "Switching $id ${if (on) "on" else "off"} failed", e)
-                    explain(e)
+                    SwitchFailure(explain(e), noRoute = isNoRoute(e))
                 }
                 error?.let { id to it }
             }
@@ -154,8 +154,14 @@ class GoogleHome(context: Context) : SmartHome {
         return if (reasons.isEmpty()) e.message ?: "Google Home error" else reasons.joinToString("; ")
     }
 
+    /** Whether Google Home couldn't reach the device, which it reports as a NO_ROUTE_FOUND sub-error. */
+    private fun isNoRoute(e: HomeException): Boolean =
+        e.subErrors.values.any { it.reason == NO_ROUTE_FOUND } ||
+            e.message?.contains("no route found", ignoreCase = true) == true
+
     private companion object {
         const val TAG = "GoogleHome"
+        const val NO_ROUTE_FOUND = "NO_ROUTE_FOUND"
 
         val SUPPORTED_TYPES: List<DeviceTypeFactory<out DeviceType>> = listOf(
             OnOffLightDevice,

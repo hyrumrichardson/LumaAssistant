@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import io.github.hyrumrichardson.luma.Notifications
+import io.github.hyrumrichardson.luma.home.SwitchFailure
 import io.github.hyrumrichardson.luma.luma
 
 /** Runs a [ScheduledAction] against the smart home and reports the result in a notification. */
@@ -22,7 +23,7 @@ class DeviceActionWorker(context: Context, params: WorkerParameters) : Coroutine
         } catch (e: Exception) {
             Log.w(TAG, "Scheduled action failed", e)
             if (runAttemptCount < MAX_ATTEMPTS) return Result.retry()
-            action.deviceIds.associateWith { e.message ?: "error" }
+            action.deviceIds.associateWith { SwitchFailure(e.message ?: "error") }
         }
 
         if (failures.isNotEmpty() && failures.size == action.deviceIds.size && runAttemptCount < MAX_ATTEMPTS) {
@@ -33,7 +34,7 @@ class DeviceActionWorker(context: Context, params: WorkerParameters) : Coroutine
         val verb = if (action.turnOn) "on" else "off"
         val message = when {
             failures.isEmpty() -> "Turned $verb ${action.description}."
-            failures.size == action.deviceIds.size -> "Couldn't turn $verb ${action.description}: ${failures.values.first()}"
+            failures.size == action.deviceIds.size -> "Couldn't turn $verb ${action.description}: ${failures.values.first().reason}"
             else -> "Turned $verb ${action.description}, but ${failures.size} device(s) didn't respond."
         }
         Notifications.showActionResult(applicationContext, id.hashCode(), message)
