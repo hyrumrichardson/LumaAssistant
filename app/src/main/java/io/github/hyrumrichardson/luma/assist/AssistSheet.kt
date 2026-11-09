@@ -54,7 +54,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -69,10 +68,10 @@ fun AssistScreen(
     onSubmit: (String) -> Unit,
 ) {
     val visible = remember { MutableTransitionState(false).apply { targetState = true } }
+    // No scrim: the app behind stays fully visible. Tapping anywhere above the sheet still closes it.
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.45f))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
         contentAlignment = Alignment.BottomCenter,
     ) {
@@ -84,6 +83,8 @@ fun AssistScreen(
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 6.dp,
+                // Without a scrim, a shadow is what sets the sheet apart from the app behind it.
+                shadowElevation = 12.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     // Swallow taps so they don't reach the scrim.
