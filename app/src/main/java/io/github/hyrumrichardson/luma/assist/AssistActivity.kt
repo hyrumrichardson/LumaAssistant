@@ -40,6 +40,11 @@ class AssistActivity : ComponentActivity() {
         if (granted) vm.startListening() else vm.startTyping()
     }
 
+    private val commandPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        awaitingSystemUi = false
+        vm.onPermissionsResult()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -59,8 +64,12 @@ class AssistActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.events.collect { event ->
                     when (event) {
-                        is AssistEvent.Launch -> launchApp(event.intent, event.fallback, event.thenClose)
+                        is AssistEvent.Launch -> launchApp(event.intent, event.fallback, event.thenClose, event.missingApp)
                         AssistEvent.Unlock -> whenUnlocked(vm::onUnlockResult)
+                        is AssistEvent.RequestPermissions -> {
+                            awaitingSystemUi = true
+                            commandPermissions.launch(event.permissions.toTypedArray())
+                        }
                         AssistEvent.Close -> finish()
                     }
                 }
@@ -98,14 +107,14 @@ class AssistActivity : ComponentActivity() {
         }
     }
 
-    private fun launchApp(intent: Intent, fallback: Intent?, thenClose: Boolean) = whenUnlocked { unlocked ->
+    private fun launchApp(intent: Intent, fallback: Intent?, thenClose: Boolean, missingApp: String?) = whenUnlocked { unlocked ->
         if (!unlocked) {
             vm.launchFailed("Unlock your phone to continue.")
             return@whenUnlocked
         }
         val started = tryStart(intent) || (fallback != null && tryStart(fallback))
         if (!started) {
-            vm.launchFailed("I couldn't find an app on this phone to do that.")
+            vm.launchFailed(missingApp ?: "I couldn't find an app on this phone to do that.")
             return@whenUnlocked
         }
         if (thenClose) finish()

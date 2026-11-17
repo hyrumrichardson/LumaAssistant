@@ -52,6 +52,31 @@ object AppIntents {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
+    // Super Productivity's URL actions: https://github.com/super-productivity/super-productivity/blob/master/docs/wiki/3.01-API.md
+    private const val SUPER_PRODUCTIVITY = "com.super-productivity.app://"
+    /** Super Productivity rejects longer titles. */
+    const val MAX_TASK_TITLE = 300
+
+    /** Super Productivity's built-in Inbox, a fixed ID in its code (src/app/features/project/project.const.ts). */
+    private const val INBOX_PROJECT_ID = "INBOX_PROJECT"
+
+    /**
+     * Adds a task called [title] to Super Productivity's Inbox. Without a project it would land in
+     * whichever project was open last, which is hard to predict from outside the app.
+     */
+    fun createTask(title: String): Intent = superProductivity(
+        "create-task?title=${Uri.encode(title.take(MAX_TASK_TITLE))}&projectId=$INBOX_PROJECT_ID",
+    )
+
+    /** Marks the task called [title] done; Super Productivity matches it ignoring case, or by a unique part of it. */
+    fun completeTask(title: String): Intent = superProductivity("complete-task?title=${Uri.encode(title)}")
+
+    /** [action] is "add-task" (its quick-add bar), "today" or "inbox". */
+    fun taskView(action: String): Intent = superProductivity(action)
+
+    private fun superProductivity(path: String): Intent =
+        Intent(Intent.ACTION_VIEW, "$SUPER_PRODUCTIVITY$path".toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
     /** Starts turn-by-turn navigation in Google Maps. */
     fun navigation(destination: String, mode: TravelMode): Intent =
         Intent(Intent.ACTION_VIEW, "google.navigation:q=${Uri.encode(destination)}&mode=${mode.mapsCode}".toUri())

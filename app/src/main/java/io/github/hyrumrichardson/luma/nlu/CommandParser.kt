@@ -16,15 +16,162 @@ object CommandParser {
     fun parseKnown(utterance: String): Command? {
         parseNavigation(utterance)?.let { return it }
         parseExplicitSearch(utterance)?.let { return it }
+        // Messages and task titles keep the user's wording and case, so they skip normalize().
+        val spoken = lightClean(utterance)
+        parseText(spoken)?.let { return it }
         val text = normalize(utterance)
         if (text.isEmpty()) return null
         return parseFlashlight(text)
             ?: parseAlarm(text)
             ?: parseDevice(text, allowLoose = false)
+            ?: parseTask(spoken)
             ?: parseTimer(text)
             ?: parseEvent(text)
             ?: parseDevice(text, allowLoose = true)
+            // Anything else that mentions tasks opens Super Productivity rather than searching the web.
+            ?: Command.OpenTasks(taskView(spoken)).takeIf { taskWord.containsMatchIn(spoken) }
     }
+
+    // --- Light cleanup -----------------------------------------------------------------------
+
+    private val lightLeading = Regex(
+        """^(?:(?:hey|hi|ok|okay)[,\s]+)?(?:luma[,\s]+)?(?:(?:please|can you|could you|would you|will you|go ahead and)[,\s]+)*""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val lightTrailing = Regex("""(?:[\s,]+(?:please|thanks|thank you))+[\s.!]*$""", RegexOption.IGNORE_CASE)
+
+    /** Trims "hey Luma, can you…" and "…please" but keeps case and punctuation. */
+    internal fun lightClean(utterance: String): String =
+        utterance.replace('’', '\'').replace(Regex("""\s+"""), " ").trim()
+            .replace(lightLeading, "").replace(lightTrailing, "").trim()
+
+    /** Trims trailing punctuation and spaces, and capitalises the first letter. */
+    private fun tidy(text: String): String =
+        text.trim().trimEnd('.', '!', '?', ',', ';', ':', ' ').trimStart(',', ':', ' ')
+            .replaceFirstChar { it.titlecase(Locale.US) }
+
+    // --- Texting -----------------------------------------------------------------------------
+
+    private const val TEXT_NOUN = """(?:text message|text|message|sms)"""
+    private val textSendTo = Regex("""^(?:send|shoot|write)\s+(?:a\s+|an\s+)?(?:new\s+|quick\s+)?$TEXT_NOUN\s+to\s+(.+)$""", RegexOption.IGNORE_CASE)
+    private val textSendWho = Regex("""^(?:send|shoot|write)\s+(.+?)\s+(?:a|an)\s+(?:quick\s+)?$TEXT_NOUN\b(.*)$""", RegexOption.IGNORE_CASE)
+    private val textVerb = Regex("""^(?:text|message|sms)\s+(.+)$""", RegexOption.IGNORE_CASE)
+    // Where the recipient ends and the message starts: "text mom saying I'm on my way".
+    private val messageStart = Regex(
+        """(?:\s+(?:saying|that says|that reads|and say|and tell (?:him|her|them)|telling (?:him|her|them)|with the message|the message|that)\s+|\s*[,:]\s+)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val notRecipients = Regex("""^(?:to speech|from|me$|messages?$|app\b)""", RegexOption.IGNORE_CASE)
+
+    private fun parseText(spoken: String): Command.SendText? {
+        val (who, after) = textSendTo.find(spoken)?.let { it.groupValues[1] to "" }
+            ?: textSendWho.find(spoken)?.let { it.groupValues[1] to it.groupValues[2] }
+            ?: textVerb.find(spoken)?.let { it.groupValues[1] to "" }
+            ?: return null
+        val full = who + after
+        val split = messageStart.find(full)
+        if (notRecipients.containsMatchIn(full)) return null
+        val recipient = (if (split != null) full.substring(0, split.range.first) else full)
+            .trim().trimEnd('.', '!', '?', ',')
+            .replace(Regex("""^to\s+""", RegexOption.IGNORE_CASE), "") // "text to mom"
+        val message = split?.let { full.substring(it.range.last + 1).trim() }?.takeIf { it.isNotEmpty() }
+        if (recipient.isEmpty()) return null
+        return Command.SendText(recipient, message)
+    }
+
+    // --- Tasks (Super Productivity) ----------------------------------------------------------
+
+    private val taskWord = Regex("""\btasks?\b""", RegexOption.IGNORE_CASE)
+    private const val TASK_LIST =
+        """(?:my\s+|the\s+)?(?:task list|tasks|task|to do list|todo list|to-do list|to dos|todos|to-dos|super productivity|super prod)"""
+    private const val DONE_WORD = """(?:done|complete|completed|finished|off)"""
+    private val ci = setOf(RegexOption.IGNORE_CASE)
+
+    // "add a task to buy milk", "new task: call Bob", "create a task called water the plants"
+    private val addTaskFirst = Regex(
+        """^(?:(?<verb>add|create|make|new|put|set up|write|write down|jot down|log|enter|schedule)\s+)?""" +
+            """(?:(?:me|a|an|the|my|new|another|quick)\s+)*task\b[,:]?\s*""" +
+            """(?:(?:called|named|titled|labeled|labelled|that says|saying|to|for|about|of)\s+)?(?<title>.*)$""",
+        ci,
+    )
+    // "add buy milk to my tasks", "put call Bob on my to do list", "add milk as a task"
+    private val addToList = Regex("""^(?:add|put|write|jot down|stick)\s+(?<title>.+?)\s+(?:to|on|in|into|onto)\s+$TASK_LIST$""", ci)
+    private val addAsTask = Regex("""^(?:add|put|make|save|create)\s+(?<title>.+?)\s+as\s+(?:a\s+|an\s+)?(?:new\s+)?task$""", ci)
+    private val titleListSuffix = Regex("""\s+(?:to|on|in|into|onto)\s+$TASK_LIST$""", ci)
+    private val titleCalled = Regex("""^(?:.*?\s)?(?:called|named|titled)\s+(.+)$""", ci)
+
+    private const val COMPLETE_VERB =
+        """(?:(?:i\s+)?(?:just\s+|have\s+|already\s+)*(?:finished|completed|did)|i'?m done with|i am done with|done with|""" +
+            """mark|check off|check|cross off|cross out|cross|tick off|tick|complete|finish|close)"""
+    // "complete task buy milk", "mark task buy milk as done", "I finished the task call Bob"
+    private val completeTaskFirst = Regex(
+        """^$COMPLETE_VERB\s+(?:off\s+)?(?:the\s+|my\s+)?task\b[,:]?\s*(?:(?:called|named|titled)\s+)?(?<title>.+?)(?:\s+(?:as\s+)?$DONE_WORD)?$""",
+        ci,
+    )
+    // "mark the buy milk task as done", "complete the laundry task"
+    private val completeTaskAfter = Regex(
+        """^$COMPLETE_VERB\s+(?:off\s+)?(?:the\s+|my\s+)?(?<title>.+?)\s+task(?:\s+(?:as\s+)?$DONE_WORD)?$""",
+        ci,
+    )
+    // "mark buy milk as done on my task list", "cross buy milk off my to do list"
+    private val completeOnList = Regex(
+        """^$COMPLETE_VERB\s+(?:off\s+)?(?<title>.+?)\s+(?:(?:as\s+)?$DONE_WORD\s+)?(?:on|in|off|from)\s+$TASK_LIST$""",
+        ci,
+    )
+    // "the buy milk task is done"
+    private val taskIsDone = Regex("""^(?:the\s+|my\s+)?(?<title>.+?)\s+task\s+is\s+(?:now\s+)?$DONE_WORD$""", ci)
+
+    private val showTasks = Regex(
+        """^(?:show|open|view|see|list|read|display|check|go to|pull up|bring up|launch|what|what'?s|whats|which|do i have|have i got|how many)\b""",
+        ci,
+    )
+    // Only as the first word: "add a task to change the oil" is still an add.
+    private val unsupportedVerb = Regex(
+        """^(delete|remove|rename|edit|change|update|move|reschedule|postpone|snooze|undo|uncheck|reopen|cancel|modify|prioriti[sz]e|archive|reorder)\b""",
+        ci,
+    )
+    // Whatever's left after the verb when no real title was given ("mark task as done").
+    private val notTaskTitles = setOf("", "list", "lists", "inbox", "manager", "as", "it", "that", "this", "a", "the", "one", "my")
+
+    private val listWords = Regex("""\b(?:to do list|todo list|to-do list|to dos|todos|to-dos|super productivity|super prod)\b""", ci)
+    private val endsOnOff = Regex("""\b(?:on|off)$""", ci)
+
+    private fun parseTask(spoken: String): Command? {
+        if (!taskWord.containsMatchIn(spoken) && !listWords.containsMatchIn(spoken)) return null
+        val text = spoken.trimEnd('.', '!', '?', ' ')
+
+        // Changes first, so "delete the buy milk task" isn't read as something else.
+        unsupportedVerb.find(text)?.let { verb ->
+            if (taskWord.containsMatchIn(text)) return Command.OpenTasks(taskView(text), unsupported = verb.groupValues[1].lowercase(Locale.US))
+        }
+
+        (completeTaskFirst.find(text) ?: completeTaskAfter.find(text) ?: completeOnList.find(text) ?: taskIsDone.find(text))
+            ?.groups?.get("title")?.value?.let(::tidy)
+            ?.let { title -> return if (title.lowercase(Locale.US) in notTaskTitles) Command.OpenTasks(TaskView.TODAY) else Command.CompleteTask(title) }
+
+        if (showTasks.containsMatchIn(text)) return Command.OpenTasks(taskView(text))
+
+        (addToList.find(text) ?: addAsTask.find(text))?.groups?.get("title")?.value?.let(::tidy)
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return Command.AddTask(it) }
+
+        addTaskFirst.find(text)?.let { m ->
+            // Without a verb, "task light off" is a device, not a task called "light off".
+            if (m.groups["verb"] == null && endsOnOff.containsMatchIn(text)) return null
+            var title = m.groups["title"]!!.value.replace(titleListSuffix, "")
+            titleCalled.find(title)?.let { title = it.groupValues[1] }
+            title = tidy(title)
+            return when {
+                title.isEmpty() -> Command.AddTask(null)
+                // "task list", "task inbox"
+                title.lowercase(Locale.US) in notTaskTitles -> Command.OpenTasks(taskView(text))
+                else -> Command.AddTask(title)
+            }
+        }
+        return null
+    }
+
+    private fun taskView(text: String) = if (Regex("""\binbox\b""", ci).containsMatchIn(text)) TaskView.INBOX else TaskView.TODAY
 
     // --- Web search --------------------------------------------------------------------------
 

@@ -6,7 +6,9 @@ import androidx.core.content.edit
 import io.github.hyrumrichardson.luma.assist.GoogleHomeRetry
 import io.github.hyrumrichardson.luma.home.GoogleHome
 import io.github.hyrumrichardson.luma.home.SmartHome
+import io.github.hyrumrichardson.luma.phone.Contacts
 import io.github.hyrumrichardson.luma.phone.Flashlight
+import io.github.hyrumrichardson.luma.phone.TextMessages
 import io.github.hyrumrichardson.luma.schedule.DeviceActionScheduler
 import io.github.hyrumrichardson.luma.schedule.ScheduledActionStore
 
@@ -16,6 +18,8 @@ class LumaApp : Application() {
     val scheduler by lazy { DeviceActionScheduler(this, ScheduledActionStore(this)) }
     val settings by lazy { LumaSettings(this) }
     val flashlight by lazy { Flashlight(this) }
+    val contacts by lazy { Contacts(this) }
+    val texts by lazy { TextMessages(this) }
 
     override fun onCreate() {
         super.onCreate()

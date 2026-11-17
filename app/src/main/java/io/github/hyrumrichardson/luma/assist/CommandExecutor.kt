@@ -8,6 +8,7 @@ import io.github.hyrumrichardson.luma.home.MatchResult
 import io.github.hyrumrichardson.luma.home.SwitchFailure
 import io.github.hyrumrichardson.luma.nlu.Command
 import io.github.hyrumrichardson.luma.nlu.Durations
+import io.github.hyrumrichardson.luma.nlu.TaskView
 import io.github.hyrumrichardson.luma.nlu.Timing
 import io.github.hyrumrichardson.luma.phone.Flashlight
 import java.time.LocalDateTime
@@ -28,11 +29,31 @@ data class Outcome(
     val fallbackLaunch: Intent? = null,
     /** Close as soon as [launch] starts, without waiting to speak. */
     val closeImmediately: Boolean = false,
+    /** What to say if no app can handle [launch] or [fallbackLaunch]. */
+    val missingApp: String? = null,
+    /** [reply] is a question: Luma listens again, and the next thing the user says goes to this. */
+    val followUp: FollowUp? = null,
 )
 
+/** The answer to a question Luma asked, as the recogniser's guesses (best first) or the typed text. */
+fun interface FollowUp {
+    suspend fun answer(alternatives: List<String>): Outcome
+}
+
 class CommandExecutor(private val app: LumaApp) {
+    private val texting = Texting(app)
 
     suspend fun execute(command: Command): Outcome = when (command) {
+        is Command.AddTask -> addTask(command)
+        is Command.CompleteTask -> Outcome(
+            reply = "Marking \"${command.title}\" done in Super Productivity.",
+            success = true,
+            launch = AppIntents.completeTask(command.title),
+            closeImmediately = true,
+            missingApp = SUPER_PRODUCTIVITY_MISSING,
+        )
+        is Command.OpenTasks -> openTasks(command)
+        is Command.SendText -> texting.start(command)
         is Command.SetTimer -> timer(command)
         is Command.SetAlarm -> alarm(command)
         is Command.CreateEvent -> event(command)
@@ -66,6 +87,46 @@ class CommandExecutor(private val app: LumaApp) {
                 success = false,
             )
         }
+
+    private fun addTask(command: Command.AddTask): Outcome {
+        val title = command.title
+            ?: return Outcome(
+                reply = "Opening a new task in Super Productivity.",
+                success = true,
+                launch = AppIntents.taskView("add-task"),
+                closeImmediately = true,
+                missingApp = SUPER_PRODUCTIVITY_MISSING,
+            )
+        if (title.length > AppIntents.MAX_TASK_TITLE) {
+            return Outcome("That's too long for a task title. Super Productivity allows ${AppIntents.MAX_TASK_TITLE} characters.", success = false)
+        }
+        return Outcome(
+            reply = "Adding \"$title\" to your Super Productivity inbox.",
+            success = true,
+            launch = AppIntents.createTask(title),
+            closeImmediately = true,
+            missingApp = SUPER_PRODUCTIVITY_MISSING,
+        )
+    }
+
+    private fun openTasks(command: Command.OpenTasks): Outcome {
+        // Super Productivity's URL actions can only add and complete tasks, so say so rather than guess.
+        command.unsupported?.let { verb ->
+            return Outcome(
+                "Super Productivity only lets other apps add and complete tasks, so I can't $verb one. " +
+                    "Say \"open my tasks\" to do it there.",
+                success = false,
+            )
+        }
+        val inbox = command.view == TaskView.INBOX
+        return Outcome(
+            reply = if (inbox) "Opening your task inbox." else "Opening today's tasks.",
+            success = true,
+            launch = AppIntents.taskView(if (inbox) "inbox" else "today"),
+            closeImmediately = true,
+            missingApp = SUPER_PRODUCTIVITY_MISSING,
+        )
+    }
 
     private fun timer(command: Command.SetTimer): Outcome {
         val length = command.length
@@ -268,6 +329,8 @@ class CommandExecutor(private val app: LumaApp) {
         if (description.startsWith("everything") || description.first().isDigit()) description else "the $description"
 
     private companion object {
+        const val SUPER_PRODUCTIVITY_MISSING =
+            "Super Productivity isn't installed, or it's too old to take tasks from other apps. Update it and try again."
         val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
         val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)
     }

@@ -1,9 +1,9 @@
 # Luma privacy policy
 
-_Last updated: October 13, 2026_
+_Last updated: November 16, 2026_
 
-Luma is a voice assistant that sets timers, switches your flashlight and Google Home devices, starts
-Google Maps navigation, and searches the web. It has no accounts, ads, analytics, or crash reporting,
+Luma is a voice assistant that sets timers, switches your flashlight and Google Home devices, sends
+texts, adds tasks to Super Productivity, starts Google Maps navigation, and searches the web. It has no accounts, ads, analytics, or crash reporting,
 and it doesn't collect, sell, or share your personal data. Luma's own code doesn't connect to the
 internet.
 
@@ -23,6 +23,19 @@ If you connect Google Home, Luma reads the names and rooms of your switchable de
 commands to them through Google Play services. That exchange is covered by Google's privacy policy.
 Luma only gets access to the home you choose. You can revoke it any time in your Google Account under
 **Data & privacy > Third-party apps & services**.
+
+## Contacts and texts
+
+When you say "text…", Luma reads your contacts' names and phone numbers on your phone to find who you
+mean. It doesn't store or upload them. It reads the message back and sends it only after you say yes.
+The message goes out as an ordinary SMS through your carrier, and Android adds it to your messaging
+app's conversation. Luma asks for the contacts and SMS permissions the first time you text someone. It
+never reads your messages.
+
+## Tasks
+
+When you add or complete a task, Luma passes the task's title to the Super Productivity app on your
+phone, which handles it under its own policy.
 
 ## Web searches
 
@@ -46,8 +59,9 @@ and uninstalling Luma deletes it.
 
 ## Lock screen
 
-Luma can open over the lock screen, but it asks you to unlock before switching devices, setting a
-timer, starting navigation, or searching. Someone holding your locked phone can't control your home.
+Luma can open over the lock screen, but it asks you to unlock before switching devices, sending a
+text, adding a task, setting a timer, starting navigation, or searching. Someone holding your locked
+phone can't control your home or text your contacts.
 The flashlight works without unlocking, like the one in Quick Settings.
 
 ## Permissions
@@ -59,6 +73,8 @@ The flashlight works without unlocking, like the one in Quick Settings.
 | Alarms & reminders | To run scheduled device actions on time |
 | Notifications | To tell you when a scheduled action has run (optional) |
 | Run at startup | To restore scheduled actions after the phone restarts |
+| Contacts | To find the phone number when you say "text…" (optional) |
+| Send SMS | To send a text after you've confirmed it (optional) |
 | Internet | Declared for the Google Home APIs. Luma's own code makes no network requests |
 
 The flashlight needs no permission.

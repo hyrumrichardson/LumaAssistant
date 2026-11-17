@@ -32,9 +32,31 @@ sealed interface Command {
     /** The phone's own flashlight. [turnOn] is null for "toggle the flashlight". */
     data class Flashlight(val turnOn: Boolean?) : Command
 
+    /** "add a task to buy milk", in Super Productivity. [title] is null for "add a task", which opens its quick-add bar. */
+    data class AddTask(val title: String?) : Command
+
+    /** "mark the buy milk task as done". Super Productivity finds the task by its title. */
+    data class CompleteTask(val title: String) : Command
+
+    /**
+     * "show my tasks", or any other request about tasks. [unsupported] names what the user asked for
+     * when it's something Super Productivity can't do for other apps ("rename"), so Luma can say so.
+     */
+    data class OpenTasks(val view: TaskView, val unsupported: String? = null) : Command
+
+    /**
+     * "text mom" or "text mom saying I'm on my way". [recipient] is the contact as spoken. Without
+     * "saying", it may run on into the message ("text mom running late"); the executor splits it
+     * once it knows the contact names. [message] is null when Luma should ask for it.
+     */
+    data class SendText(val recipient: String, val message: String?) : Command
+
     /** An explicit "search for…", and also what anything Luma doesn't understand becomes. */
     data class WebSearch(val query: String) : Command
 }
+
+/** The Super Productivity views Luma can open. */
+enum class TaskView { TODAY, INBOX }
 
 enum class TravelMode(val mapsCode: String) {
     DRIVING("d"),

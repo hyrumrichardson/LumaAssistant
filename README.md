@@ -14,6 +14,8 @@ power or home, corner swipe, or whatever gesture your phone uses), and a popup l
 | "Set an alarm for 7 am", "Wake me up at 6:30", "Set a gym alarm for 6" | Sets an alarm in your Clock app |
 | "Set appointment called dentist for Friday at 3 pm", "Schedule a meeting with Bob tomorrow at 10" | Opens a new Google Calendar event, filled in, for you to save |
 | "Turn on the flashlight", "Flashlight off" | Switches your phone's flashlight |
+| "Text Mom", "Text John saying I'm on my way", "Send Sarah a message" | Asks for the message if you didn't say one, reads it back, and sends it as an SMS when you say yes |
+| "Add a task to buy milk", "New task: call Bob", "Mark the buy milk task as done", "Show my tasks" | Adds and completes tasks in [Super Productivity](https://super-productivity.com/) (a recent version, with URL actions) |
 | "Navigate to the Space Needle", "Walking directions to the library", "Take me home" | Starts Google Maps navigation |
 | "Turn off the living room lights", "Toggle the lamp", "Turn on the fan for half an hour", "Turn off the lights in 10 minutes", "...at 10:30 pm" | Switches Google Home devices now or later ([build it yourself](#google-home-device-control)) |
 | Anything else, like "How tall is Mount Everest?" | Searches the web in your default browser |

@@ -3,8 +3,10 @@ package io.github.hyrumrichardson.luma.assist
 import android.app.Application
 import android.app.KeyguardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.speech.SpeechRecognizer
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.hyrumrichardson.luma.luma
@@ -32,10 +34,13 @@ data class AssistUiState(
 )
 
 sealed interface AssistEvent {
-    data class Launch(val intent: Intent, val fallback: Intent?, val thenClose: Boolean) : AssistEvent
+    data class Launch(val intent: Intent, val fallback: Intent?, val thenClose: Boolean, val missingApp: String?) : AssistEvent
 
     /** Ask the user to unlock, then report back with [AssistViewModel.onUnlockResult]. */
     data object Unlock : AssistEvent
+
+    /** Ask for runtime permissions, then report back with [AssistViewModel.onPermissionsResult]. */
+    data class RequestPermissions(val permissions: List<String>) : AssistEvent
 
     data object Close : AssistEvent
 }
@@ -55,8 +60,19 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
 
     private var work: Job? = null
 
-    /** A device command waiting for the user to unlock the phone. */
+    /** A command waiting for the user to unlock the phone. */
     private var awaitingUnlock: Command? = null
+
+    /** A command waiting for the user to answer a permission prompt. */
+    private var awaitingPermissions: Command? = null
+
+    /** A question Luma asked; the next thing the user says answers it instead of being a new command. */
+    private var asking: Asking? = null
+
+    private class Asking(val question: String, val followUp: FollowUp)
+
+    /** Whether the last input was typed, so a follow-up question waits for typing rather than listening. */
+    private var typed = false
 
     fun startListening() {
         cancelWork()
@@ -64,7 +80,8 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
             reply("Speech recognition isn't available on this phone. You can type instead.", success = false)
             return
         }
-        _state.value = AssistUiState(phase = Phase.Starting)
+        // While a question is waiting, keep it on screen in place of the example.
+        _state.value = AssistUiState(phase = Phase.Starting, reply = asking?.question.orEmpty())
         speech.start(object : SpeechInput.Listener {
             override fun onReady() = _state.update { it.copy(phase = Phase.Listening) }
 
@@ -73,7 +90,10 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
 
             override fun onPartial(text: String) = _state.update { it.copy(phase = Phase.Listening, heard = text) }
 
-            override fun onResults(alternatives: List<String>) = handle(alternatives)
+            override fun onResults(alternatives: List<String>) {
+                typed = false
+                handle(alternatives)
+            }
 
             override fun onError(error: Int) {
                 speech.stop()
@@ -84,17 +104,25 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
 
     fun startTyping() {
         cancelWork()
-        _state.value = AssistUiState(phase = Phase.Typing)
+        _state.value = AssistUiState(phase = Phase.Typing, reply = asking?.question.orEmpty())
     }
 
     fun submitText(text: String) {
         if (text.isBlank()) return
         cancelWork()
+        typed = true
         handle(listOf(text.trim()))
     }
 
     private fun handle(alternatives: List<String>) {
         speech.stop()
+        asking?.let { pending ->
+            asking = null
+            _state.value = AssistUiState(phase = Phase.Thinking, heard = alternatives.first())
+            work = viewModelScope.launch { deliver(safely { pending.followUp.answer(alternatives) }) }
+            return
+        }
+
         // Recognisers return several guesses; use the first one Luma understands, and otherwise
         // search the web for the likeliest one.
         val (heard, command) = alternatives.firstNotNullOfOrNull { text -> CommandParser.parseKnown(text)?.let { text to it } }
@@ -105,14 +133,15 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        // Anyone can open the assistant over the lock screen, so switching devices needs an unlock.
-        if (command is Command.ControlDevice && keyguard.isKeyguardLocked) {
+        // Anyone can open the assistant over the lock screen, so switching devices and texting need an unlock.
+        val unlockReply = unlockReply(command)
+        if (unlockReply != null && keyguard.isKeyguardLocked) {
             awaitingUnlock = command
-            _state.update { it.copy(reply = UNLOCK_REPLY) }
+            _state.update { it.copy(reply = unlockReply) }
             viewModelScope.launch { _events.send(AssistEvent.Unlock) }
             return
         }
-        run(command)
+        runWithPermissions(command)
     }
 
     fun onUnlockResult(unlocked: Boolean) {
@@ -120,26 +149,84 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
         awaitingUnlock = null
         if (unlocked) {
             _state.update { it.copy(reply = "") }
-            run(command)
+            runWithPermissions(command)
         } else {
-            reply(UNLOCK_REPLY, success = false, speak = false)
+            reply(unlockReply(command) ?: "Unlock your phone to continue.", success = false, speak = false)
         }
     }
 
+    /** Asks for any permissions [command] needs that Luma doesn't have yet, then runs it. */
+    private fun runWithPermissions(command: Command) {
+        val missing = permissionsFor(command).filter {
+            ContextCompat.checkSelfPermission(app, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            run(command)
+            return
+        }
+        awaitingPermissions = command
+        viewModelScope.launch { _events.send(AssistEvent.RequestPermissions(missing)) }
+    }
+
+    /** Runs the command either way; if something's still missing, it explains what. */
+    fun onPermissionsResult() {
+        val command = awaitingPermissions ?: return
+        awaitingPermissions = null
+        run(command)
+    }
+
+    private fun permissionsFor(command: Command): List<String> = when (command) {
+        is Command.SendText -> if (app.texts.hasTelephony) Texting.PERMISSIONS else emptyList()
+        else -> emptyList()
+    }
+
+    private fun unlockReply(command: Command): String? = when (command) {
+        is Command.ControlDevice -> "Unlock your phone to control your devices."
+        is Command.SendText -> "Unlock your phone to send texts."
+        else -> null
+    }
+
     private fun run(command: Command) {
-        work = viewModelScope.launch {
-            val outcome = try {
-                executor.execute(command)
-            } catch (e: Exception) {
-                Log.w(TAG, "Command failed", e)
-                Outcome("Something went wrong: ${e.message ?: e.javaClass.simpleName}", success = false)
-            }
-            outcome.launch?.let { _events.send(AssistEvent.Launch(it, outcome.fallbackLaunch, outcome.closeImmediately)) }
-            if (outcome.closeImmediately) {
+        work = viewModelScope.launch { deliver(safely { executor.execute(command) }) }
+    }
+
+    private suspend fun safely(block: suspend () -> Outcome): Outcome = try {
+        block()
+    } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+        Log.w(TAG, "Command failed", e)
+        Outcome("Something went wrong: ${e.message ?: e.javaClass.simpleName}", success = false)
+    }
+
+    private suspend fun deliver(outcome: Outcome) {
+        outcome.launch?.let {
+            _events.send(AssistEvent.Launch(it, outcome.fallbackLaunch, outcome.closeImmediately, outcome.missingApp))
+        }
+        val followUp = outcome.followUp
+        when {
+            followUp != null -> ask(outcome.reply, followUp)
+            outcome.closeImmediately ->
                 _state.update { it.copy(phase = Phase.Replied, reply = outcome.reply, success = outcome.success) }
-            } else {
-                reply(outcome.reply, outcome.success)
+            else -> reply(outcome.reply, outcome.success)
+        }
+    }
+
+    /** Shows (and maybe speaks) [question], then listens (or waits for typing) for the answer. */
+    private fun ask(question: String, followUp: FollowUp) {
+        val pending = Asking(question, followUp)
+        asking = pending
+        _state.update { it.copy(phase = Phase.Replied, reply = question, success = true, level = 0f) }
+        val answer = {
+            // Unless the user has already moved on (tapped the keyboard or mic, or answered by typing).
+            if (asking === pending && _state.value.phase == Phase.Replied) {
+                if (typed) startTyping() else startListening()
             }
+        }
+        if (app.settings.speakReplies) {
+            speaker.speak(question) { answer() }
+        } else {
+            // After this coroutine ends, since starting to listen cancels it.
+            viewModelScope.launch { answer() }
         }
     }
 
@@ -170,6 +257,7 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
     private fun cancelWork() {
         work?.cancel()
         awaitingUnlock = null
+        awaitingPermissions = null
         speaker.stop()
         speech.stop()
     }
@@ -183,6 +271,5 @@ class AssistViewModel(application: Application) : AndroidViewModel(application) 
         const val TAG = "AssistViewModel"
         const val CLOSE_DELAY_MILLIS = 600L
         const val READ_DELAY_MILLIS = 1800L
-        const val UNLOCK_REPLY = "Unlock your phone to control your devices."
     }
 }

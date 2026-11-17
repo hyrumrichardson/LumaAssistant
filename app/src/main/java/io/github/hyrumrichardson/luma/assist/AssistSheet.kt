@@ -134,7 +134,16 @@ private fun SheetContent(
         Spacer(Modifier.size(12.dp))
 
         if (state.phase == Phase.Typing) {
-            TypingField(onSubmit)
+            // A question Luma asked, waiting for a typed answer.
+            if (state.reply.isNotEmpty()) {
+                Text(
+                    state.reply,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            TypingField(onSubmit, placeholder = if (state.reply.isNotEmpty()) "Type your answer" else null)
         } else {
             Column(Modifier.fillMaxWidth().heightIn(min = 72.dp), verticalArrangement = Arrangement.Center) {
                 if (state.heard.isNotEmpty()) {
@@ -143,7 +152,7 @@ private fun SheetContent(
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Medium,
                     )
-                } else if (listening) {
+                } else if (listening && state.reply.isEmpty()) {
                     Text(
                         "Try “set a timer for 10 minutes”",
                         style = MaterialTheme.typography.bodyLarge,
@@ -198,14 +207,14 @@ private fun SheetContent(
 }
 
 @Composable
-private fun TypingField(onSubmit: (String) -> Unit) {
+private fun TypingField(onSubmit: (String) -> Unit, placeholder: String?) {
     var text by rememberSaveable { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     OutlinedTextField(
         value = text,
         onValueChange = { text = it },
-        placeholder = { Text("Turn off the living room lights in 10 minutes") },
+        placeholder = { Text(placeholder ?: "Turn off the living room lights in 10 minutes") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { onSubmit(text) }),

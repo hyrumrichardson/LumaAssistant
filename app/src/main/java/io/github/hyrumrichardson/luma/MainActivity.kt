@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hyrumrichardson.luma.assist.AssistActivity
 import io.github.hyrumrichardson.luma.assist.Speaker
+import io.github.hyrumrichardson.luma.assist.Texting
 import io.github.hyrumrichardson.luma.home.HomeStatus
 import io.github.hyrumrichardson.luma.home.SmartDevice
 import io.github.hyrumrichardson.luma.schedule.ScheduledAction
@@ -106,6 +107,8 @@ private data class Checks(
     val mic: Boolean = false,
     val notifications: Boolean = false,
     val exactAlarms: Boolean = false,
+    val texting: Boolean = false,
+    val canText: Boolean = false,
 )
 
 private fun Context.granted(permission: String) =
@@ -116,6 +119,8 @@ private fun Context.readChecks() = Checks(
     mic = granted(Manifest.permission.RECORD_AUDIO),
     notifications = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || granted(Manifest.permission.POST_NOTIFICATIONS),
     exactAlarms = luma.scheduler.canScheduleExact,
+    texting = luma.contacts.canRead && luma.texts.canSend,
+    canText = luma.texts.hasTelephony,
 )
 
 private fun Context.startFirst(vararg intents: Intent) {
@@ -173,6 +178,9 @@ private fun SetupScreen() {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         checks = context.readChecks()
     }
+    val permissionsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        checks = context.readChecks()
+    }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
@@ -218,6 +226,15 @@ private fun SetupScreen() {
                         detail = if (checks.mic) "Allowed" else "Needed to hear your commands.",
                         action = "Allow".takeUnless { checks.mic },
                     ) { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }
+                    if (checks.canText) {
+                        StatusRow(
+                            ok = checks.texting,
+                            title = "Texting",
+                            detail = if (checks.texting) "Allowed. Luma reads a text back and sends it only when you say yes." else
+                                "Optional: contacts and SMS, for \"text mom\". Luma also asks the first time.",
+                            action = "Allow".takeUnless { checks.texting },
+                        ) { permissionsLauncher.launch(Texting.PERMISSIONS.toTypedArray()) }
+                    }
                     // These two only matter for scheduled Google Home actions.
                     if (BuildConfig.HOME_APIS_ENABLED) ScheduledActionPermissions(checks) { permissionLauncher.launch(it) }
                 }
@@ -566,6 +583,10 @@ private fun ExamplesSection() {
             "Set an alarm for 7 am",
             "Set appointment called dentist for Friday at 3 pm",
             "Turn on the flashlight",
+            "Text Mom (Luma asks for the message, reads it back and sends it when you say yes)",
+            "Add a task to buy milk (in Super Productivity)",
+            "Mark the buy milk task as done",
+            "Show my tasks",
             "Turn off the living room lights",
             "Turn off the living room lights in 10 minutes",
             "Turn on the fan for half an hour",
